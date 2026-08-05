@@ -78,6 +78,7 @@ function App() {
 
   const abortRef = useRef<AbortController | null>(null);
   const resultUrlRef = useRef<string | null>(null);
+  const playerRef = useRef<HTMLDivElement>(null);
 
   const providerObj = getProvider(provider);
   const model = modelByProvider[provider];
@@ -105,6 +106,14 @@ function App() {
       if (resultUrlRef.current) URL.revokeObjectURL(resultUrlRef.current);
     };
   }, []);
+
+  // Bring the player into view when a new result appears (it renders below the
+  // fold), so the user sees it without scrolling.
+  useEffect(() => {
+    if (result && playerRef.current) {
+      playerRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [result]);
 
   // ElevenLabs voices come from the user's account once a key is saved.
   useEffect(() => {
@@ -330,7 +339,10 @@ function App() {
         </div>
 
         {result && (
-          <div className="mt-6 bg-white rounded-xl border border-gray-200 p-6">
+          <div
+            ref={playerRef}
+            className="mt-6 bg-white rounded-xl border border-gray-200 p-6"
+          >
             <AudioPlayer
               src={result.url}
               filename={result.filename}

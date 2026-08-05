@@ -19,10 +19,13 @@ export function ModelSelector({ provider, value, onChange }: Props) {
       >
         {provider.models.map((m) => (
           <option key={m.id} value={m.id}>
-            {m.label}
+            {m.label} · {m.cost}/1K chars
           </option>
         ))}
       </select>
+      <p className="text-xs text-gray-400 mt-1">
+        Approx. cost per 1,000 characters; varies by plan.
+      </p>
     </div>
   );
 }

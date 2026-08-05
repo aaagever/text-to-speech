@@ -21,6 +21,9 @@ export interface ModelOption {
   charLimit: number;
   // True when the model can voice Hebrew. Drives the non-blocking UI hint.
   hebrew: boolean;
+  // Approximate cost per 1,000 input characters, e.g. "~$0.015". Displayed in
+  // the model dropdown for comparison; actual billing varies by provider/plan.
+  cost: string;
 }
 
 export interface VoiceOption {
