@@ -39,7 +39,7 @@ If the `t2s` pages.dev subdomain is taken, use `t2s-joeleilat` and update `name`
 
 The Pages project serves at `t2s-41f.pages.dev` (Cloudflare appended `-41f`; the project name is still `t2s`).
 
-**Current state (2026-08-05):** the custom domain `t2s.joeleilat.com` is already **registered on the Pages project** via the API (status `pending`), but it will not resolve until a DNS record exists. Neither the wrangler OAuth token nor the sibling project's `CLOUDFLARE_API_TOKEN` has DNS-write scope (both are zone-read only), so the CNAME could not be created from the CLI. This is the one manual step.
+**Current state (2026-08-05):** **live and active at https://t2s.joeleilat.com.** The custom domain was registered on the Pages project via the API, and the CNAME (`t2s -> t2s-41f.pages.dev`, proxied) was added manually in the Cloudflare dashboard because neither the wrangler OAuth token nor the sibling project's `CLOUDFLARE_API_TOKEN` has DNS-write scope (both are zone-read only). If the domain ever needs re-attaching, the steps below are the procedure.
 
 **To finish (about 60 seconds in the Cloudflare dashboard), either path works:**
 
