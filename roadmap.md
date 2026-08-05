@@ -26,6 +26,8 @@ Shipped after Joel's first live use.
 - API key area collapses to a "Saved / Change" row once a key exists (no more Save/Saved flicker).
 - Model dropdown shows an approximate cost per 1,000 characters per model, with a "varies by plan" caption.
 - The player scrolls into view when a result is generated.
+- Voice lists sorted alphabetically for all three providers.
+- Confirmed selections persist across reloads (provider/model/voice/speed); this was already in the prefs system since V1, verified live including the ElevenLabs async-fetch case.
 
 ## Milestone 2: Live provider verification (IN PROGRESS, 2026-08-05)
 

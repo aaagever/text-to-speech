@@ -6,13 +6,14 @@ Bring your own API key. Your key is stored only in your browser and is sent only
 
 ## Features
 
-- **Three providers:** OpenAI, ElevenLabs, and Google Gemini, each with a choice of models and voices.
+- **Three providers:** OpenAI, ElevenLabs, and Google Gemini, each with a choice of models (with an approximate cost shown per model) and an alphabetical voice list.
 - **Paste or drop a file:** `.txt`, `.md`, or `.docx`. Markdown and Word formatting are cleaned so the voice never reads "hashtag hashtag title" or spells out a URL.
 - **English and Hebrew:** all three providers voice Hebrew (on ElevenLabs, use the Eleven v3 model). The editor is right-to-left aware.
 - **Long text just works:** it is split at sentence boundaries, synthesized part by part with progress, and stitched into one file.
 - **Player:** play/pause, seek, skip back/forward 15 and 30 seconds, and change speed from 0.75x to 2x.
 - **Download:** one click. Short OpenAI/ElevenLabs clips download as MP3; Gemini and long stitched audio download as WAV.
 - **Session only:** the audio lives in memory for the session and is gone when you regenerate or close the tab.
+- **Remembers your setup:** your last provider, model, voice, and speed are kept in the browser, so you pick up where you left off.
 
 ## Getting a key
 
