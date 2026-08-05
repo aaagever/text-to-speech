@@ -2,6 +2,14 @@
 
 Dated architecture decisions and their rationale. Newest first.
 
+## 2026-08-05: Model cost shown as approximate USD per 1,000 characters
+
+Joel asked for per-model cost in the dropdown. The providers price in different units (OpenAI tts-1/hd per character but gpt-4o-mini-tts per token; Gemini per audio+text token; ElevenLabs per subscription credit), so no single native unit is comparable. Chosen unit: **approximate USD per 1,000 characters** (roughly one post), computed/estimated from each provider's published rate and shown with a leading "~" plus an "Approx. cost per 1,000 characters; varies by plan" caption. This keeps the relative picture honest and useful (ElevenLabs is 3-6x pricier than OpenAI/Gemini) without implying false precision. Costs live as a `cost` string on each `ModelOption`. A live per-generation estimate from the actual input length stays in the backlog.
+
+## 2026-08-05: API key input collapses once a key is saved
+
+The original ApiKeyInput showed a Save button that flashed "Saved!" then reverted to "Save", which read as unfinished and left a full input row taking space for a key that only needs to be entered once. Changed to collapse to a compact "Saved / Change" row whenever a key exists in localStorage (Change re-expands the input, with a Cancel to back out). The component is still remounted per provider via a `key` prop and reads the stored key in a lazy initializer, so no state-sync effect is needed (avoids the `react-hooks/set-state-in-effect` lint rule).
+
 ## 2026-08-05: Fully static, no backend (browser calls providers directly)
 
 All three provider APIs return permissive CORS headers for the `t2s.joeleilat.com` origin (verified by preflight `OPTIONS` on 2026-08-05: OpenAI and Gemini echo the origin and allow the auth header; ElevenLabs allows `*`). So the browser can call each provider directly with the user's key and there is no reason to run a proxy. This is the opposite of the sibling s2t tool, which needs a Cloudflare Pages Functions proxy purely because AssemblyAI does not send CORS headers.

@@ -14,20 +14,28 @@ The full working tool.
 - Namespaced logging + per-run debug records + "Copy details" report.
 - Unit tests for the pure modules (46 passing).
 
-## Milestone 2: Live provider verification (NEXT)
+## Milestone 3: Deploy (DONE, 2026-08-05)
+
+- Cloudflare Pages project `t2s` + `wrangler pages deploy` (serves at `t2s-41f.pages.dev`).
+- **Live at t2s.joeleilat.com**: domain registered on the Pages project via API; the CNAME was added by Joel in the dashboard (the deploy token lacks DNS-write scope). Procedure and the known post-deploy asset-propagation transient are in `runbook.md`.
+
+## Milestone 4: UX polish (DONE, 2026-08-05)
+
+Shipped after Joel's first live use.
+
+- API key area collapses to a "Saved / Change" row once a key exists (no more Save/Saved flicker).
+- Model dropdown shows an approximate cost per 1,000 characters per model, with a "varies by plan" caption.
+- The player scrolls into view when a result is generated.
+
+## Milestone 2: Live provider verification (IN PROGRESS, 2026-08-05)
 
 Confirm end-to-end with real keys; small fixes likely.
 
-- Verify each provider produces correct audio (OpenAI MP3 passthrough, ElevenLabs v3 Hebrew, Gemini 2.5 PCM pitch/rate correct).
-- Confirm the Gemini 3.1 Interactions response shape and adjust `gemini.ts` if needed.
-- Confirm the too-long auto-split triggers correctly for long Hebrew on gpt-4o-mini-tts.
-- Confirm error messages for wrong key / out-of-credits per provider.
-- Confirm a real `.docx` (including Hebrew) linearizes cleanly.
-
-## Milestone 3: Deploy (NEXT)
-
-- Cloudflare Pages project + `wrangler pages deploy`.
-- Custom domain t2s.joeleilat.com (API attempt, dashboard fallback documented in runbook).
+- DONE: OpenAI and ElevenLabs configured and working on the live site (Joel: "works perfectly"); ElevenLabs key scoped to Text to Speech + Voices (Read).
+- DONE: real `.docx` linearizes cleanly (integration smoke test against a real file passed).
+- TODO: Gemini key just being added; confirm 2.5 Flash/Pro PCM pitch/rate and the 3.1 Interactions response shape (adjust `gemini.ts` if needed).
+- TODO: confirm the too-long auto-split triggers correctly for long Hebrew on gpt-4o-mini-tts.
+- TODO: confirm wrong-key / out-of-credits messages per provider against live responses.
 
 ## Later
 

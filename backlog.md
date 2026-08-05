@@ -11,7 +11,7 @@ Prioritized enhancements beyond V1. None are required for the tool to work.
 ## Medium
 
 - **ElevenLabs voice settings + language pinning.** Expose `voice_settings` (stability, similarity, speed 0.7-1.2) and optionally `language_code` for cases where short text is mis-detected. `apply_text_normalization` is already left at the default `auto`.
-- **Cost estimate.** Show an approximate cost per generation from the character/token count and each provider's published rate.
+- **Live cost estimate per generation.** V1 now shows a static approximate cost per 1,000 characters in the model dropdown (see Done). The richer version: compute the actual cost for the current input length and show it before generating.
 - **Voice previews.** A short pre-rendered or on-demand sample per voice so the user can audition before generating the whole text.
 - **Chunk-seam silence trim.** Trim leading/trailing silence at chunk boundaries in the WAV merge to avoid audible gaps in long text (seams already fall on sentence/paragraph breaks, so this is polish).
 
@@ -21,3 +21,11 @@ Prioritized enhancements beyond V1. None are required for the tool to work.
 - **Keyboard shortcuts** for play/pause and skip in the player.
 - **Drag-drop multiple files** concatenated into one script.
 - **Light/dark** parity (V1 is light only, matching the sibling).
+
+## Done
+
+### 2026-08-05
+
+- **Static per-model cost labels.** Each model in the dropdown shows an approximate cost per 1,000 characters (OpenAI ~$0.015-0.03, Gemini ~$0.02-0.03, ElevenLabs ~$0.05-0.10) with a "varies by plan" caption. Costs are a `cost` field on `ModelOption`. Partial delivery of "Cost estimate"; the live per-generation version stays in the backlog.
+- **API key collapse.** Once a key is saved the input collapses to a "Saved / Change" row, replacing the Save button that reverted from "Saved" to "Save". `src/components/ApiKeyInput.tsx`.
+- **Auto-scroll to the player** when a result is generated. `src/App.tsx` (playerRef + effect on result).
