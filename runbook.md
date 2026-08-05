@@ -62,6 +62,12 @@ dig +short t2s.joeleilat.com
 curl -sI https://t2s.joeleilat.com | head -3
 ```
 
+## Known transient: unstyled page right after a deploy
+
+For roughly a minute after `npm run deploy`, there is a small window where Cloudflare's edge serves the new `index.html` (which references new hashed asset filenames) before the new CSS/JS assets have propagated to every edge node. A request for the not-yet-propagated asset falls back to `index.html` (`text/html`), so a browser that loads in that window can render unstyled and then cache that bad response for the hashed asset URL.
+
+It self-heals: within about a minute the asset propagates (`curl -sI https://t2s.joeleilat.com/assets/index-<hash>.css` returns `content-type: text/css`). A browser stuck on the cached bad response is fixed with a hard reload (Cmd+Shift+R). This does not affect a normal reload on a fresh visit, because each deploy's assets have new content-hashed filenames the browser has never cached. Nothing to fix in the app; just wait a minute (or hard-reload) after deploying before judging the live site.
+
 ## Rollback
 
 ```bash
