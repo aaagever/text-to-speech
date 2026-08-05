@@ -29,3 +29,4 @@ Prioritized enhancements beyond V1. None are required for the tool to work.
 - **Static per-model cost labels.** Each model in the dropdown shows an approximate cost per 1,000 characters (OpenAI ~$0.015-0.03, Gemini ~$0.02-0.03, ElevenLabs ~$0.05-0.10) with a "varies by plan" caption. Costs are a `cost` field on `ModelOption`. Partial delivery of "Cost estimate"; the live per-generation version stays in the backlog.
 - **API key collapse.** Once a key is saved the input collapses to a "Saved / Change" row, replacing the Save button that reverted from "Saved" to "Save". `src/components/ApiKeyInput.tsx`.
 - **Auto-scroll to the player** when a result is generated. `src/App.tsx` (playerRef + effect on result).
+- **Alphabetical voice lists** for all three providers, sorted by label at the source (static OpenAI/Gemini catalogs and the ElevenLabs fetched list).
