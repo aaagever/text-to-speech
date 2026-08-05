@@ -29,15 +29,14 @@ Shipped after Joel's first live use.
 - Voice lists sorted alphabetically for all three providers.
 - Confirmed selections persist across reloads (provider/model/voice/speed); this was already in the prefs system since V1, verified live including the ElevenLabs async-fetch case.
 
-## Milestone 2: Live provider verification (IN PROGRESS, 2026-08-05)
+## Milestone 2: Live provider verification (DONE, 2026-08-05)
 
-Confirm end-to-end with real keys; small fixes likely.
+Confirmed end-to-end with real keys.
 
-- DONE: OpenAI and ElevenLabs configured and working on the live site (Joel: "works perfectly"); ElevenLabs key scoped to Text to Speech + Voices (Read).
-- DONE: real `.docx` linearizes cleanly (integration smoke test against a real file passed).
-- TODO: Gemini key just being added; confirm 2.5 Flash/Pro PCM pitch/rate and the 3.1 Interactions response shape (adjust `gemini.ts` if needed).
-- TODO: confirm the too-long auto-split triggers correctly for long Hebrew on gpt-4o-mini-tts.
-- TODO: confirm wrong-key / out-of-credits messages per provider against live responses.
+- All three providers produce correct audio on the live site: OpenAI and ElevenLabs (Joel: "works perfectly"), and Google Gemini (Joel confirmed it works; default path is 2.5 Flash). ElevenLabs key scoped to Text to Speech + Voices (Read).
+- Real `.docx` linearizes cleanly (integration smoke test against a real file passed).
+- Voice selection persists per provider across reloads, verified live including the ElevenLabs async-fetch case.
+- Residual optional checks, non-blocking (edge paths only): the too-long auto-split on very long Hebrew for gpt-4o-mini-tts, the Gemini 3.1 preview model's Interactions response shape, and exact wrong-key / out-of-credits message wording per provider. Confirm if any ever surfaces in real use.
 
 ## Later
 
