@@ -22,7 +22,9 @@ const VOICE_IDS = [
   "Vindemiatrix", "Sadachbia", "Sadaltager", "Sulafat",
 ];
 
-const VOICES: VoiceOption[] = VOICE_IDS.map((id) => ({ id, label: id }));
+const VOICES: VoiceOption[] = VOICE_IDS.map((id) => ({ id, label: id })).sort(
+  (a, b) => a.label.localeCompare(b.label)
+);
 
 function base64ToArrayBuffer(b64: string): ArrayBuffer {
   const binary = atob(b64);

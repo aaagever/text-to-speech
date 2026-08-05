@@ -20,7 +20,9 @@ async function listVoices(
     signal
   );
   const json = (await res.json()) as ElevenVoicesResponse;
-  return (json.voices ?? []).map((v) => ({ id: v.voice_id, label: v.name }));
+  return (json.voices ?? [])
+    .map((v) => ({ id: v.voice_id, label: v.name }))
+    .sort((a, b) => a.label.localeCompare(b.label));
 }
 
 async function synthesize(

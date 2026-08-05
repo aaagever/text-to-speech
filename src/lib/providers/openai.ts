@@ -21,7 +21,7 @@ const VOICE_IDS = [
 const VOICES: VoiceOption[] = VOICE_IDS.map((id) => ({
   id,
   label: id.charAt(0).toUpperCase() + id.slice(1),
-}));
+})).sort((a, b) => a.label.localeCompare(b.label));
 
 async function synthesize(
   req: SynthesisRequest,
