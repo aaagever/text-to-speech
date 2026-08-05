@@ -37,9 +37,23 @@ If the `t2s` pages.dev subdomain is taken, use `t2s-joeleilat` and update `name`
 
 ## Custom domain (t2s.joeleilat.com)
 
-The Pages project serves at `t2s.pages.dev`. To attach the custom domain, in the Cloudflare dashboard: **Workers and Pages -> t2s -> Custom domains -> Set up a custom domain -> `t2s.joeleilat.com`**. Because `joeleilat.com` is a zone on the same Cloudflare account, Cloudflare creates the proxied CNAME automatically and provisions TLS. This takes about a minute.
+The Pages project serves at `t2s-41f.pages.dev` (Cloudflare appended `-41f`; the project name is still `t2s`).
 
-Note: the wrangler OAuth token has read-only zone scope, so it cannot create the DNS record from the CLI; the dashboard step above is the reliable path. (This is the same manual step the sibling s2t project used but never documented.)
+**Current state (2026-08-05):** the custom domain `t2s.joeleilat.com` is already **registered on the Pages project** via the API (status `pending`), but it will not resolve until a DNS record exists. Neither the wrangler OAuth token nor the sibling project's `CLOUDFLARE_API_TOKEN` has DNS-write scope (both are zone-read only), so the CNAME could not be created from the CLI. This is the one manual step.
+
+**To finish (about 60 seconds in the Cloudflare dashboard), either path works:**
+
+- Easiest: **Workers and Pages -> t2s -> Custom domains**. The pending `t2s.joeleilat.com` is already listed; click it and accept the DNS record Cloudflare offers to create. Because `joeleilat.com` is a zone on the same account, it creates the proxied CNAME and provisions TLS automatically.
+- Or add the DNS record directly: **DNS -> Records -> Add record**: type `CNAME`, name `t2s`, target `t2s-41f.pages.dev`, proxy status **Proxied** (orange cloud). The pending Pages domain validates within a minute or two once this exists.
+
+Verify:
+
+```bash
+dig +short t2s.joeleilat.com
+curl -sI https://t2s.joeleilat.com | head -3
+```
+
+(This is the same dashboard step the sibling s2t project used but never documented.)
 
 Verify:
 
