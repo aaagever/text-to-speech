@@ -1,5 +1,5 @@
 import type { ChunkAudio, SynthesisRequest, TTSProvider, VoiceOption } from "../types";
-import { ttsFetch } from "../errors";
+import { ttsFetchArrayBuffer } from "../errors";
 
 // OpenAI's built-in voices (gpt-4o-mini-tts / tts-1 / tts-1-hd share the set).
 const VOICE_IDS = [
@@ -27,7 +27,7 @@ async function synthesize(
   req: SynthesisRequest,
   signal: AbortSignal
 ): Promise<ChunkAudio> {
-  const res = await ttsFetch(
+  const data = await ttsFetchArrayBuffer(
     "https://api.openai.com/v1/audio/speech",
     {
       method: "POST",
@@ -45,7 +45,7 @@ async function synthesize(
     { provider: "openai", step: "synthesize" },
     signal
   );
-  return { data: await res.arrayBuffer(), format: "mp3" };
+  return { data, format: "mp3" };
 }
 
 export const openai: TTSProvider = {

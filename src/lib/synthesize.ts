@@ -1,7 +1,10 @@
 // Orchestrates a full synthesis run: clean text is chunked to fit the model's
-// limit, each chunk is synthesized sequentially (with progress, cancellation,
-// a too-long auto-split, and a single 429 retry), then the parts are assembled
-// into one in-memory blob. Nothing is ever written to disk or a server.
+// limit, each chunk is synthesized sequentially (with progress, cancellation, a
+// too-long auto-split, and bounded retries for transient failures), then the
+// parts are assembled into one in-memory blob. Nothing is written to disk or a
+// server. Retries cover rate limits, provider 5xx, and network drops (including
+// a connection lost mid-download) so one flaky moment on a mobile network does
+// not throw away a long multi-chunk run.
 
 import type { ChunkAudio, Progress, SynthesisOutput, TTSProvider } from "./types";
 import { charLimitFor } from "./providers";
@@ -84,8 +87,16 @@ function makeFilenameBase(): string {
   return `t2s-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
 }
 
-// Synthesize one unit of text, returning one or more audio chunks. Recurses to
-// split a too-long unit; retries once on a rate-limit. `depth` bounds recursion.
+// How many times to retry a single request after a transient failure (network
+// drop, rate limit, provider 5xx) before giving up on the run. Two retries
+// (three attempts total) recovers the common mobile blip without hammering a
+// provider that is genuinely down.
+const MAX_TRANSIENT_RETRIES = 2;
+
+// Synthesize one unit of text, returning one or more audio chunks. A too-long
+// unit is split near its middle and each half synthesized (recursion bounded by
+// `splitDepth`); a transient failure is retried with a short backoff (bounded by
+// MAX_TRANSIENT_RETRIES), independent of split depth.
 async function synthesizeUnit(
   provider: TTSProvider,
   base: { model: string; voice: string; apiKey: string },
@@ -94,48 +105,63 @@ async function synthesizeUnit(
   nextText: string | undefined,
   signal: AbortSignal,
   rec: DebugRecord,
-  depth: number
+  splitDepth: number
 ): Promise<ChunkAudio[]> {
   if (signal.aborted) throw abortError();
+
   const startedAt = Date.now();
-  try {
-    const audio = await provider.synthesize(
-      { ...base, text: unit, previousText, nextText },
-      signal
-    );
-    rec.chunks.push({
-      index: rec.chunks.length,
-      chars: unit.length,
-      ms: Date.now() - startedAt,
-      bytes: audio.data.byteLength,
-      status: depth > 0 ? "retried" : "ok",
-    });
-    return [audio];
-  } catch (err) {
-    if (isAbortError(err)) throw err;
+  let attempt = 0; // retries of THIS request, not split children
 
-    if (err instanceof TtsError && err.tooLong && depth < 2 && unit.length > 60) {
-      log.warn(`part too long (${unit.length} chars); splitting and retrying`);
-      const [a, b] = splitInHalf(unit);
-      const left = await synthesizeUnit(provider, base, a, previousText, b, signal, rec, depth + 1);
-      const right = await synthesizeUnit(provider, base, b, a, nextText, signal, rec, depth + 1);
-      return [...left, ...right];
+  for (;;) {
+    try {
+      const audio = await provider.synthesize(
+        { ...base, text: unit, previousText, nextText },
+        signal
+      );
+      rec.chunks.push({
+        index: rec.chunks.length,
+        chars: unit.length,
+        ms: Date.now() - startedAt,
+        bytes: audio.data.byteLength,
+        attempts: attempt + 1,
+        status: attempt > 0 || splitDepth > 0 ? "retried" : "ok",
+      });
+      return [audio];
+    } catch (err) {
+      if (isAbortError(err)) throw err;
+
+      // Too long for the model: split near the middle and synthesize each half.
+      if (err instanceof TtsError && err.tooLong && splitDepth < 2 && unit.length > 60) {
+        log.warn(`part too long (${unit.length} chars); splitting and retrying`);
+        const [a, b] = splitInHalf(unit);
+        const left = await synthesizeUnit(provider, base, a, previousText, b, signal, rec, splitDepth + 1);
+        const right = await synthesizeUnit(provider, base, b, a, nextText, signal, rec, splitDepth + 1);
+        return [...left, ...right];
+      }
+
+      // Transient failure (network drop, rate limit, provider 5xx): back off and
+      // retry the same request a bounded number of times. This is what saves a
+      // long run from a single dropped request on a flaky mobile network.
+      if (err instanceof TtsError && err.retryable && attempt < MAX_TRANSIENT_RETRIES) {
+        attempt++;
+        const backoffMs = 2000 * attempt; // 2s, then 4s
+        log.warn(
+          `transient failure (attempt ${attempt} of ${MAX_TRANSIENT_RETRIES}); retrying in ${backoffMs}ms: ${err.message}`
+        );
+        await delay(backoffMs, signal);
+        continue;
+      }
+
+      rec.chunks.push({
+        index: rec.chunks.length,
+        chars: unit.length,
+        ms: Date.now() - startedAt,
+        bytes: 0,
+        attempts: attempt + 1,
+        status: "failed",
+      });
+      throw err;
     }
-
-    if (err instanceof TtsError && err.retryable && depth === 0) {
-      log.warn("rate-limited; retrying once after 2s");
-      await delay(2000, signal);
-      return synthesizeUnit(provider, base, unit, previousText, nextText, signal, rec, depth + 1);
-    }
-
-    rec.chunks.push({
-      index: rec.chunks.length,
-      chars: unit.length,
-      ms: Date.now() - startedAt,
-      bytes: 0,
-      status: "failed",
-    });
-    throw err;
   }
 }
 

@@ -54,8 +54,8 @@ Error shapes differ and are all handled in `src/lib/errors.ts`: OpenAI `{error:{
 - `src/lib/chunker.ts` -- boundary-aware chunking (pure)
 - `src/lib/audio.ts` -- PCM decode, Web Audio merge, WAV writer (buildWav + pcm16ToFloat32 are pure + tested)
 - `src/lib/providers/` -- one client per provider + `index.ts` catalog/registry
-- `src/lib/synthesize.ts` -- orchestrator: chunk, sequential synth, too-long auto-split, 429 retry, assemble
-- `src/lib/errors.ts` -- `ttsFetch` + per-provider error mapping
+- `src/lib/synthesize.ts` -- orchestrator: chunk, sequential synth, too-long auto-split, transient-failure retries (network/429/5xx), assemble
+- `src/lib/errors.ts` -- `ttsFetchArrayBuffer` / `ttsFetchJson` (fetch + read the body in one guarded path) + per-provider error mapping
 - `src/lib/log.ts` / `src/lib/debug.ts` -- namespaced logging + per-run debug records (the "Copy details" report)
 - `src/lib/prefs.ts` -- last provider/model/voice/speed in localStorage
 
@@ -67,8 +67,9 @@ Error shapes differ and are all handled in `src/lib/errors.ts`: OpenAI `{error:{
 
 ## Gotchas
 
-- **Chunk limits are chars, provider limits are sometimes tokens.** Hebrew is roughly 1-2 chars/token, so a char-based chunk can still exceed a token cap. The orchestrator auto-halves a chunk and retries once on an input-too-long 400.
-- **Gemini has two API generations.** 2.5 models use `generateContent`; the 3.1 preview uses the newer Interactions API. `src/lib/providers/gemini.ts` routes per model. The 3.1 response shape is best-effort and should be confirmed with a live key (see backlog).
+- **Chunk limits are chars, provider limits are sometimes tokens.** Hebrew is roughly 1-2 chars/token, so a char-based chunk can still exceed a token cap. The orchestrator auto-halves a chunk and retries on an input-too-long 400.
+- **Transient network failures are retried; body reads are guarded.** Provider calls go through `ttsFetchArrayBuffer` / `ttsFetchJson`, which read the response body inside the same try as the `fetch`, so a connection dropped mid-download becomes a friendly, retryable error rather than a raw "Failed to fetch". `synthesizeUnit` retries a retryable failure (network drop, 429, 5xx) up to twice with a 2s/4s backoff, so one blip on a mobile network doesn't discard a long multi-chunk run; per-chunk attempts show in the debug report. There is deliberately no explicit request timeout (see decisions 2026-08-12).
+- **Gemini has two API generations.** 2.5 models use `generateContent`; the 3.1 preview uses the newer Interactions API. `src/lib/providers/gemini.ts` routes per model. Gemini's per-chunk char limit is a deliberately small 2500 (not the ~8192-token max) so each request is short enough to survive a mobile connection; see decisions 2026-08-12. The 3.1 response shape is best-effort and should be confirmed with a live key (see backlog).
 - **Keys live in localStorage** (`t2s-openai-api-key`, `t2s-elevenlabs-api-key`, `t2s-gemini-api-key`). Documented XSS tradeoff: no third-party scripts, no user-rendered HTML. See decisions.md.
 - **The dev script is plain `vite`**, not `wrangler pages dev` like the sibling, because there are no Functions.
 - **mammoth** is imported from `mammoth/mammoth.browser` and dynamically `import()`ed so it only loads on first docx use (its own ~490KB chunk).

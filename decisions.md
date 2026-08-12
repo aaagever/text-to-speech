@@ -2,6 +2,22 @@
 
 Dated architecture decisions and their rationale. Newest first.
 
+## 2026-08-12: Network resilience for flaky mobile connections (retries, guarded body reads, smaller Gemini chunks)
+
+Two field errors on Android Chrome (Chrome 151 mobile) exposed that the app had no resilience to transient mobile-network failures during a long multi-chunk run:
+
+1. **OpenAI, 19 chunks:** chunk 2's response body dropped mid-download. `res.arrayBuffer()` ran outside `ttsFetch`'s try/catch, so the raw "Failed to fetch" escaped unwrapped, non-retryable, and untagged, killing a run that had already produced 2 good chunks.
+2. **Gemini, 4 chunks:** one 7,793-char request (at the old 8,000-char limit) ran for ~7 minutes before the mobile connection died. The network error was not retryable, so the whole run failed after 7 minutes of waiting.
+
+Fixes:
+
+- **Body reads happen inside the guarded request path.** `ttsFetch` (which returned a bare `Response` for callers to read) is replaced by `ttsFetchArrayBuffer` / `ttsFetchJson`, which read the body inside the same try as the `fetch`. A connection dropped mid-download now becomes a friendly, retryable `TtsError` instead of a raw TypeError, and it is part-tagged like any other chunk failure.
+- **Network failures are retryable.** Both a failed `fetch()` and a failed body read are marked `retryable: true`. User aborts are still rethrown untouched, so "cancelled" stays distinct from "failed".
+- **Bounded transient retries.** `synthesizeUnit` retries a retryable error (network drop, 429, 5xx) up to 2 times with a 2s/4s backoff, separate from the too-long split recursion. The old code retried only a 429, only once, only at split depth 0. Per-chunk attempts are recorded and shown in the debug report.
+- **Smaller Gemini chunks (8000 -> 2500 chars).** A full 8,000-char Gemini `generateContent` request is minutes of audio in a single HTTP call, which a mobile radio can't reliably hold open. 2,500 chars keeps each request short-lived and mobile-resilient; Gemini already assembles to WAV regardless of chunk count, and seams fall on sentence/paragraph breaks. Tunable if it still proves flaky.
+
+Deliberately NOT added: an explicit per-request timeout. A timeout tight enough to bound the wait risks false-timing-out a legitimately slow request (Gemini per-chunk generation time is unmeasured, and ElevenLabs `flash_v2_5` accepts up to 30,000 chars in one call). Smaller chunks plus retries address both field errors without that risk; a size-scaled per-provider timeout can be added later once we have real timing. See backlog.
+
 ## 2026-08-05: Model cost shown as approximate USD per 1,000 characters
 
 Joel asked for per-model cost in the dropdown. The providers price in different units (OpenAI tts-1/hd per character but gpt-4o-mini-tts per token; Gemini per audio+text token; ElevenLabs per subscription credit), so no single native unit is comparable. Chosen unit: **approximate USD per 1,000 characters** (roughly one post), computed/estimated from each provider's published rate and shown with a leading "~" plus an "Approx. cost per 1,000 characters; varies by plan" caption. This keeps the relative picture honest and useful (ElevenLabs is 3-6x pricier than OpenAI/Gemini) without implying false precision. Costs live as a `cost` string on each `ModelOption`. A live per-generation estimate from the actual input length stays in the backlog.

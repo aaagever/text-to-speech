@@ -1,5 +1,5 @@
 import type { ChunkAudio, SynthesisRequest, TTSProvider, VoiceOption } from "../types";
-import { ttsFetch } from "../errors";
+import { ttsFetchArrayBuffer, ttsFetchJson } from "../errors";
 
 const BASE = "https://api.elevenlabs.io/v1";
 
@@ -13,13 +13,12 @@ async function listVoices(
   apiKey: string,
   signal: AbortSignal
 ): Promise<VoiceOption[]> {
-  const res = await ttsFetch(
+  const json = await ttsFetchJson<ElevenVoicesResponse>(
     `${BASE}/voices`,
     { headers: { "xi-api-key": apiKey } },
     { provider: "elevenlabs", step: "voices" },
     signal
   );
-  const json = (await res.json()) as ElevenVoicesResponse;
   return (json.voices ?? [])
     .map((v) => ({ id: v.voice_id, label: v.name }))
     .sort((a, b) => a.label.localeCompare(b.label));
@@ -29,7 +28,7 @@ async function synthesize(
   req: SynthesisRequest,
   signal: AbortSignal
 ): Promise<ChunkAudio> {
-  const res = await ttsFetch(
+  const data = await ttsFetchArrayBuffer(
     `${BASE}/text-to-speech/${encodeURIComponent(req.voice)}?output_format=mp3_44100_128`,
     {
       method: "POST",
@@ -49,7 +48,7 @@ async function synthesize(
     { provider: "elevenlabs", step: "synthesize" },
     signal
   );
-  return { data: await res.arrayBuffer(), format: "mp3" };
+  return { data, format: "mp3" };
 }
 
 export const elevenlabs: TTSProvider = {

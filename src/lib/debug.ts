@@ -10,6 +10,9 @@ export interface ChunkTiming {
   chars: number;
   ms: number;
   bytes: number;
+  // Total attempts made for this chunk (1 = succeeded first try). Surfaced in
+  // the report so retried/flaky chunks are visible when diagnosing a run.
+  attempts?: number;
   status: "ok" | "retried" | "failed";
 }
 
@@ -107,7 +110,10 @@ export function formatDebugReport(rec?: DebugRecord): string {
   if (r.chunks.length) {
     lines.push("chunks:");
     for (const c of r.chunks) {
-      lines.push(`  #${c.index}: ${c.chars} chars, ${c.ms}ms, ${c.bytes} bytes, ${c.status}`);
+      const tries = c.attempts && c.attempts > 1 ? `, ${c.attempts} attempts` : "";
+      lines.push(
+        `  #${c.index}: ${c.chars} chars, ${c.ms}ms, ${c.bytes} bytes, ${c.status}${tries}`
+      );
     }
   }
 

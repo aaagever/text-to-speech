@@ -156,26 +156,32 @@ function mapProviderError(
   };
 }
 
-// fetch() that injects the abort signal, translates network-level failures, and
-// converts any non-OK response into a TtsError. Returns the Response untouched
-// on success so callers can read arrayBuffer() / json() themselves.
-export async function ttsFetch(
+// Core request path: fetch() with the abort signal, map any non-OK response to
+// a TtsError, and read the body INSIDE the try so a connection that drops mid
+// download (the raw "Failed to fetch" seen on mobile) is caught here rather than
+// escaping unhandled from the caller. User cancellations (AbortError) are
+// rethrown untouched so the orchestrator can tell "cancelled" from "failed";
+// every other network-level failure becomes a *retryable* TtsError, which is
+// what synthesize.ts retries. Transient drops are common on mobile networks.
+async function ttsRequest<T>(
   url: string,
   init: RequestInit,
   ctx: TtsErrorContext,
-  signal: AbortSignal
-): Promise<Response> {
+  signal: AbortSignal,
+  read: (res: Response) => Promise<T>
+): Promise<T> {
   const log = createLogger(ctx.provider);
+  const label = PROVIDER_LABEL[ctx.provider];
+
   let res: Response;
   try {
     res = await fetch(url, { ...init, signal });
   } catch (err) {
-    // Rethrow aborts untouched so the caller can tell "cancelled" from "failed".
     if (err instanceof DOMException && err.name === "AbortError") throw err;
     log.error(`network error during ${ctx.step}:`, err);
     throw new TtsError(
-      `Couldn't reach ${PROVIDER_LABEL[ctx.provider]}. Check your internet connection and try again.`,
-      {}
+      `Couldn't reach ${label}. Check your internet connection and try again.`,
+      { retryable: true }
     );
   }
 
@@ -188,5 +194,38 @@ export async function ttsFetch(
     throw new TtsError(message, detail);
   }
 
-  return res;
+  try {
+    return await read(res);
+  } catch (err) {
+    // The connection dropped while downloading the response body. Before this
+    // was translated it escaped as an unfriendly, non-retryable "Failed to
+    // fetch"; treat it as a retryable network failure instead.
+    if (err instanceof DOMException && err.name === "AbortError") throw err;
+    log.error(`reading the ${ctx.step} response failed:`, err);
+    throw new TtsError(
+      `Lost the connection to ${label} while downloading the audio. Check your internet connection and try again.`,
+      { retryable: true }
+    );
+  }
+}
+
+// Fetch a response and return its body as raw bytes (audio), with the network
+// and error handling above.
+export function ttsFetchArrayBuffer(
+  url: string,
+  init: RequestInit,
+  ctx: TtsErrorContext,
+  signal: AbortSignal
+): Promise<ArrayBuffer> {
+  return ttsRequest(url, init, ctx, signal, (res) => res.arrayBuffer());
+}
+
+// Fetch a response and parse it as JSON, with the same handling.
+export function ttsFetchJson<T>(
+  url: string,
+  init: RequestInit,
+  ctx: TtsErrorContext,
+  signal: AbortSignal
+): Promise<T> {
+  return ttsRequest<T>(url, init, ctx, signal, (res) => res.json() as Promise<T>);
 }

@@ -10,6 +10,7 @@ Prioritized enhancements beyond V1. None are required for the tool to work.
 
 ## Medium
 
+- **Per-request timeout / long-request fragility.** There is deliberately no explicit fetch timeout (see decisions 2026-08-12): a genuinely hung socket now relies on the browser/OS to error it before the retries kick in. A size-scaled per-provider timeout would bound that wait, but needs real per-provider generation timing first, and must not false-timeout ElevenLabs `flash_v2_5`, which accepts up to 30,000 chars in one call. Related: that 30,000-char limit is itself one very long, mobile-fragile request; consider lowering it the way Gemini's was if it fails in the field.
 - **ElevenLabs voice settings + language pinning.** Expose `voice_settings` (stability, similarity, speed 0.7-1.2) and optionally `language_code` for cases where short text is mis-detected. `apply_text_normalization` is already left at the default `auto`.
 - **Live cost estimate per generation.** V1 now shows a static approximate cost per 1,000 characters in the model dropdown (see Done). The richer version: compute the actual cost for the current input length and show it before generating.
 - **Voice previews.** A short pre-rendered or on-demand sample per voice so the user can audition before generating the whole text.
@@ -23,6 +24,10 @@ Prioritized enhancements beyond V1. None are required for the tool to work.
 - **Light/dark** parity (V1 is light only, matching the sibling).
 
 ## Done
+
+### 2026-08-12
+
+- **Mobile network resilience.** Long multi-chunk runs no longer die on a single transient failure. Body reads are guarded (a connection dropped mid-download is now a retryable, part-tagged error, not a raw "Failed to fetch"); network failures are retryable; `synthesizeUnit` retries transient errors (network/429/5xx) twice with 2s/4s backoff; the debug report shows per-chunk attempts. Gemini's chunk size dropped 8000 -> 2500 so each request is short enough to survive a mobile connection. Fixes two field errors on Android Chrome. See decisions.md; 9 new unit tests (`errors.test.ts`, `synthesize.test.ts`).
 
 ### 2026-08-05
 

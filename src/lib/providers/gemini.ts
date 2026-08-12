@@ -1,5 +1,5 @@
 import type { ChunkAudio, SynthesisRequest, TTSProvider, VoiceOption } from "../types";
-import { ttsFetch, TtsError } from "../errors";
+import { ttsFetchJson, TtsError } from "../errors";
 import { createLogger } from "../log";
 
 const log = createLogger("gemini");
@@ -38,7 +38,9 @@ async function synthesizeGenerateContent(
   req: SynthesisRequest,
   signal: AbortSignal
 ): Promise<ChunkAudio> {
-  const res = await ttsFetch(
+  const json = await ttsFetchJson<{
+    candidates?: Array<{ content?: { parts?: Array<{ inlineData?: { data?: string } }> } }>;
+  }>(
     `${BASE}/models/${req.model}:generateContent`,
     {
       method: "POST",
@@ -56,9 +58,6 @@ async function synthesizeGenerateContent(
     { provider: "gemini", step: "synthesize" },
     signal
   );
-  const json = (await res.json()) as {
-    candidates?: Array<{ content?: { parts?: Array<{ inlineData?: { data?: string } }> } }>;
-  };
   const data = json.candidates?.[0]?.content?.parts?.find((p) => p.inlineData)
     ?.inlineData?.data;
   if (!data) {
@@ -76,7 +75,10 @@ async function synthesizeInteractions(
   req: SynthesisRequest,
   signal: AbortSignal
 ): Promise<ChunkAudio> {
-  const res = await ttsFetch(
+  const json = await ttsFetchJson<{
+    output_audio?: { data?: string };
+    audio?: { data?: string };
+  }>(
     `${BASE}/interactions`,
     {
       method: "POST",
@@ -91,10 +93,6 @@ async function synthesizeInteractions(
     { provider: "gemini", step: "synthesize" },
     signal
   );
-  const json = (await res.json()) as {
-    output_audio?: { data?: string };
-    audio?: { data?: string };
-  };
   const data = json.output_audio?.data ?? json.audio?.data;
   if (!data) {
     log.error("no audio in interactions response:", JSON.stringify(json).slice(0, 500));
@@ -120,25 +118,31 @@ export const gemini: TTSProvider = {
   keyStorageKey: "t2s-gemini-api-key",
   keyLabel: "Gemini API key",
   keyUrl: "https://aistudio.google.com/apikey",
+  // charLimit is 2500 (well under the ~8192-token cap), not the token-max, on
+  // purpose: a full 8000-char chunk makes one very long generateContent request
+  // (minutes of audio) that a mobile connection can't reliably hold open, which
+  // is exactly what timed out in the field. Smaller chunks = shorter requests =
+  // far more resilient on flaky mobile networks; Gemini output is WAV-merged
+  // regardless of chunk count, and seams fall on sentence/paragraph breaks.
   models: [
     {
       id: "gemini-2.5-flash-preview-tts",
       label: "2.5 Flash TTS (recommended)",
-      charLimit: 8000,
+      charLimit: 2500,
       hebrew: true,
       cost: "~$0.02",
     },
     {
       id: "gemini-2.5-pro-preview-tts",
       label: "2.5 Pro TTS (higher quality)",
-      charLimit: 8000,
+      charLimit: 2500,
       hebrew: true,
       cost: "~$0.03",
     },
     {
       id: "gemini-3.1-flash-tts-preview",
       label: "3.1 Flash TTS (preview, new API)",
-      charLimit: 8000,
+      charLimit: 2500,
       hebrew: true,
       cost: "~$0.03",
     },
