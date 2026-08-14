@@ -96,7 +96,8 @@ const MAX_TRANSIENT_RETRIES = 2;
 // Synthesize one unit of text, returning one or more audio chunks. A too-long
 // unit is split near its middle and each half synthesized (recursion bounded by
 // `splitDepth`); a transient failure is retried with a short backoff (bounded by
-// MAX_TRANSIENT_RETRIES), independent of split depth.
+// MAX_TRANSIENT_RETRIES), independent of split depth. `onRetry` fires when a
+// retry is about to be waited out, so the caller can reflect it in the UI.
 async function synthesizeUnit(
   provider: TTSProvider,
   base: { model: string; voice: string; apiKey: string },
@@ -105,7 +106,8 @@ async function synthesizeUnit(
   nextText: string | undefined,
   signal: AbortSignal,
   rec: DebugRecord,
-  splitDepth: number
+  splitDepth: number,
+  onRetry?: (attempt: number) => void
 ): Promise<ChunkAudio[]> {
   if (signal.aborted) throw abortError();
 
@@ -134,8 +136,8 @@ async function synthesizeUnit(
       if (err instanceof TtsError && err.tooLong && splitDepth < 2 && unit.length > 60) {
         log.warn(`part too long (${unit.length} chars); splitting and retrying`);
         const [a, b] = splitInHalf(unit);
-        const left = await synthesizeUnit(provider, base, a, previousText, b, signal, rec, splitDepth + 1);
-        const right = await synthesizeUnit(provider, base, b, a, nextText, signal, rec, splitDepth + 1);
+        const left = await synthesizeUnit(provider, base, a, previousText, b, signal, rec, splitDepth + 1, onRetry);
+        const right = await synthesizeUnit(provider, base, b, a, nextText, signal, rec, splitDepth + 1, onRetry);
         return [...left, ...right];
       }
 
@@ -148,6 +150,7 @@ async function synthesizeUnit(
         log.warn(
           `transient failure (attempt ${attempt} of ${MAX_TRANSIENT_RETRIES}); retrying in ${backoffMs}ms: ${err.message}`
         );
+        onRetry?.(attempt + 1); // the attempt number we are about to make
         await delay(backoffMs, signal);
         continue;
       }
@@ -165,10 +168,12 @@ async function synthesizeUnit(
   }
 }
 
+// Returns everything but retriedParts, which the orchestrator fills in from the
+// run record after all chunks are done.
 async function assemble(
   chunks: ChunkAudio[],
   rec: DebugRecord
-): Promise<SynthesisOutput> {
+): Promise<Omit<SynthesisOutput, "retriedParts">> {
   const base = makeFilenameBase();
 
   // Fast path: a single MP3 chunk passes through untouched (no re-encode, no
@@ -246,7 +251,8 @@ export async function synthesizeText(
           chunks[i + 1],
           signal,
           rec,
-          0
+          0,
+          (attempt) => onProgress({ current: i + 1, total: chunks.length, attempt })
         );
         audioChunks.push(...units);
       } catch (err) {
@@ -265,8 +271,9 @@ export async function synthesizeText(
     }
 
     const output = await assemble(audioChunks, rec);
+    const retriedParts = rec.chunks.filter((c) => (c.attempts ?? 1) > 1).length;
     finishDebugRecord(rec, "success", output.durationSec);
-    return output;
+    return { ...output, retriedParts };
   } catch (err) {
     if (isAbortError(err)) {
       log.info(`run ${rec.runId} cancelled`);

@@ -2,6 +2,13 @@
 
 Dated architecture decisions and their rationale. Newest first.
 
+## 2026-08-12: Per-conversion cost is an estimate from input length; retries are surfaced
+
+Two related UI additions, both prompted by the mobile failures above.
+
+- **Cost estimate.** The tool now shows a per-conversion cost (live in the text footer, and on the finished player), not just the static per-1,000-char rate in the model dropdown. It is deliberately an **estimate** = `input chars x the model's per-1,000-char rate` (`src/lib/cost.ts`), always prefixed "~", never the actual bill. Reason: no TTS provider returns a price in its response, and they bill in different units (OpenAI per token, Gemini per audio+text token, ElevenLabs per subscription credit), so a "real" number isn't available client-side and would differ per plan anyway. Gemini's `generateContent` does return `usageMetadata` token counts, which could make its estimate more precise later, but a consistent input-length estimate across all three providers was chosen over per-provider special-casing.
+- **Retry visibility.** Because retries can cost money in one specific case (a connection dropped *after* the provider generated the audio, so the chunk is billed and then regenerated), the UI now shows retries rather than hiding them: the live status reads "Retrying part X of Y..." during a retry (via a new optional `attempt` on `Progress`), and the result carries `retriedParts` so it can warn that retried parts may slightly increase the bill. Retries from a pre-generation network drop, a 429, or a 5xx generally are not billed; the note is intentionally soft ("can slightly increase") rather than claiming a definite extra charge.
+
 ## 2026-08-12: Network resilience for flaky mobile connections (retries, guarded body reads, smaller Gemini chunks)
 
 Two field errors on Android Chrome (Chrome 151 mobile) exposed that the app had no resilience to transient mobile-network failures during a long multi-chunk run:

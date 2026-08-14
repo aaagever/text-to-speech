@@ -10,6 +10,7 @@ import type { ProviderId, Progress, VoiceOption } from "./lib/types";
 import { PROVIDERS, getProvider, getModelOption, charLimitFor } from "./lib/providers";
 import { stripMarkdown } from "./lib/markdown-strip";
 import { chunkText } from "./lib/chunker";
+import { costEstimateLabel } from "./lib/cost";
 import { synthesizeText, isAbortError, WARN_INPUT_CHARS } from "./lib/synthesize";
 import { formatDebugReport } from "./lib/debug";
 import { loadPrefs, savePrefs } from "./lib/prefs";
@@ -47,6 +48,8 @@ interface Result {
   filename: string;
   label: string;
   durationSec: number | null;
+  costEstimate: string | null;
+  retriedParts: number;
 }
 
 function App() {
@@ -171,10 +174,28 @@ function App() {
       ? `That's a lot of text (${text.length.toLocaleString()} characters). Generation may take a while and use more of your API credits.`
       : null;
 
+  // Approximate cost of the current text, from its (cleaned) length and the
+  // selected model's per-1,000-char rate. Estimate only; see lib/cost.ts.
+  const costEstimate =
+    modelOpt && cleaned.length > 0 ? costEstimateLabel(cleaned.length, modelOpt.cost) : null;
+
+  const retrying = !!progress && (progress.attempt ?? 1) > 1;
+  const statusText =
+    progress && progress.total > 1
+      ? `${retrying ? "Retrying" : "Generating"} part ${progress.current} of ${progress.total}...`
+      : retrying
+        ? "Retrying..."
+        : "Generating...";
+
   function handleFileText(newText: string, filename: string) {
     setText(newText);
     setLoadedName(filename);
     setError(null);
+  }
+
+  function handleClearText() {
+    setText("");
+    setLoadedName(null);
   }
 
   function voiceLabelOf(id: string): string {
@@ -203,7 +224,14 @@ function App() {
       if (resultUrlRef.current) URL.revokeObjectURL(resultUrlRef.current);
       const url = URL.createObjectURL(output.blob);
       resultUrlRef.current = url;
-      setResult({ url, filename: output.filename, label, durationSec: output.durationSec });
+      setResult({
+        url,
+        filename: output.filename,
+        label,
+        durationSec: output.durationSec,
+        costEstimate,
+        retriedParts: output.retriedParts,
+      });
     } catch (err) {
       if (isAbortError(err)) {
         // Cancel is a silent reset, not an error.
@@ -266,7 +294,13 @@ function App() {
           )}
 
           <div className="border-t border-gray-100 pt-4 space-y-3">
-            <TextInput value={text} onChange={setText} parts={parts} />
+            <TextInput
+              value={text}
+              onChange={setText}
+              parts={parts}
+              costEstimate={costEstimate}
+              onClear={handleClearText}
+            />
             <FileUploader
               onText={handleFileText}
               onError={(msg) => {
@@ -290,9 +324,7 @@ function App() {
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                   </svg>
-                  {progress && progress.total > 1
-                    ? `Generating part ${progress.current} of ${progress.total}...`
-                    : "Generating..."}
+                  {statusText}
                 </div>
                 <button
                   type="button"
@@ -343,6 +375,13 @@ function App() {
             ref={playerRef}
             className="mt-6 bg-white rounded-xl border border-gray-200 p-6"
           >
+            {result.retriedParts > 0 && (
+              <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2 mb-4">
+                {result.retriedParts} part{result.retriedParts > 1 ? "s" : ""}{" "}
+                {result.retriedParts > 1 ? "were" : "was"} retried after a network
+                hiccup. This can slightly increase your provider cost.
+              </p>
+            )}
             <AudioPlayer
               src={result.url}
               filename={result.filename}
@@ -350,6 +389,7 @@ function App() {
               speed={speed}
               onSpeedChange={setSpeed}
               durationHint={result.durationSec}
+              costEstimate={result.costEstimate}
             />
           </div>
         )}

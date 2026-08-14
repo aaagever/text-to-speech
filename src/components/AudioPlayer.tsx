@@ -8,6 +8,8 @@ interface Props {
   speed: number;
   onSpeedChange: (s: number) => void;
   durationHint: number | null;
+  // Approximate cost of the generated audio, e.g. "~ $0.55".
+  costEstimate?: string | null;
 }
 
 function formatTime(sec: number): string {
@@ -40,6 +42,7 @@ export function AudioPlayer({
   speed,
   onSpeedChange,
   durationHint,
+  costEstimate,
 }: Props) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -112,7 +115,10 @@ export function AudioPlayer({
       <audio ref={audioRef} src={src} preload="metadata" />
 
       <div className="flex items-center justify-between mb-4">
-        <span className="text-xs text-gray-500">{label}</span>
+        <span className="text-xs text-gray-500">
+          {label}
+          {costEstimate ? ` · ${costEstimate}` : ""}
+        </span>
         <span className="text-xs text-gray-400 truncate ml-3">{filename}</span>
       </div>
 

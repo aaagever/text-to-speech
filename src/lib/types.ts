@@ -69,9 +69,16 @@ export interface SynthesisOutput {
   filename: string;
   durationSec: number | null;
   chunkCount: number;
+  // How many parts had to be retried after a transient failure. Surfaced on the
+  // result so the user knows a network hiccup happened (and may add a little to
+  // the provider bill when the audio had already been generated).
+  retriedParts: number;
 }
 
 export interface Progress {
   current: number;
   total: number;
+  // The current attempt for this part; > 1 means a retry is in flight, so the
+  // UI can show "Retrying..." instead of "Generating...".
+  attempt?: number;
 }
