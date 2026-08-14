@@ -42,10 +42,7 @@ export function TextInput({ value, onChange, parts, costEstimate, onClear }: Pro
         placeholder="Paste text here, or drop a file below."
         className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-y"
       />
-      <div className="flex items-center justify-between mt-1.5">
-        <span className="text-xs text-gray-400">
-          Markdown is cleaned automatically.
-        </span>
+      <div className="flex items-center justify-end mt-1.5">
         <span className="text-xs text-gray-400">
           {value.length.toLocaleString()} characters
           {parts > 1 ? ` · ~${parts} parts` : ""}
