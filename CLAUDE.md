@@ -47,7 +47,7 @@ Error shapes differ and are all handled in `src/lib/errors.ts`: OpenAI `{error:{
 ## Code map
 
 - `src/App.tsx` -- state owner, layout, generation orchestration, error/debug wiring
-- `src/components/` -- ProviderSelector (segmented), ApiKeyInput, ModelSelector, VoiceSelector, TextInput, FileUploader, UrlFetcher, AudioPlayer
+- `src/components/` -- ProviderSelector (segmented), ApiKeyInput, ModelSelector, VoiceSelector, TextInput (also the link input), FileUploader, AudioPlayer
 - `src/lib/fetch-article.ts` -- URL -> clean article text via Jina Reader (pure helpers tested; records each attempt for the debug report)
 - `src/lib/markdown-strip.ts` -- Markdown -> speech text (pure, Hebrew-safe; also used on pasted text)
 - `src/lib/html-to-speech-text.ts` -- docx HTML -> speech text (DOMParser walk)
@@ -74,6 +74,7 @@ Error shapes differ and are all handled in `src/lib/errors.ts`: OpenAI `{error:{
 - **The per-conversion cost is an estimate, never the real bill.** `src/lib/cost.ts` scales the model's per-1,000-char rate by the input length; it is always shown with a "~" prefix. Providers bill in different units (tokens, credits) and return no price in the response, so an exact figure isn't available client-side (see decisions 2026-08-12).
 - **Gemini has two API generations.** 2.5 models use `generateContent`; the 3.1 preview uses the newer Interactions API. `src/lib/providers/gemini.ts` routes per model. Gemini's per-chunk char limit is a deliberately small 2500 (not the ~8192-token max) so each request is short enough to survive a mobile connection; see decisions 2026-08-12. The 3.1 response shape is best-effort and should be confirmed with a live key (see backlog).
 - **URL fetching goes through Jina Reader, keyless.** `src/lib/fetch-article.ts` calls `r.jina.ai` (no API key, roughly 20 requests a minute, so a 429 says "wait a minute"). The pasted page URL is sent to Jina: the one exception to "the browser only talks to the provider you pick". Paywalled and login-walled pages cannot be read and say so. A fetch auto-starts synthesis except when the text exceeds `WARN_INPUT_CHARS`, a run is already going, or no key/voice is set; under `MIN_ARTICLE_CHARS` (200) counts as a failed read. See decisions 2026-08-15.
+- **There is no separate URL field: a link goes in the main text box.** `looksLikeUrl` (whole value is one whitespace-free token with a real TLD) decides. It fires on paste and on blur, plus a fallback when Generate is pressed on a bare link, but **never on keystrokes**: a hand-typed URL is briefly valid partway through (`stratechery.com` en route to `stratechery.com/an-article`) and a keystroke trigger would fetch the wrong page. `lastUrlAttemptRef` stops blur from re-fetching a failing link on every focus change.
 - **Keys live in localStorage** (`t2s-openai-api-key`, `t2s-elevenlabs-api-key`, `t2s-gemini-api-key`). Documented XSS tradeoff: no third-party scripts, no user-rendered HTML. See decisions.md.
 - **The dev script is plain `vite`**, not `wrangler pages dev` like the sibling, because there are no Functions.
 - **mammoth** is imported from `mammoth/mammoth.browser` and dynamically `import()`ed so it only loads on first docx use (its own ~490KB chunk).

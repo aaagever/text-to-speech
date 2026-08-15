@@ -4,6 +4,7 @@ import {
   composeArticleText,
   displayNameFor,
   fetchArticle,
+  looksLikeUrl,
   normalizeUrl,
   JINA_READER_BASE,
   MIN_ARTICLE_CHARS,
@@ -62,6 +63,35 @@ describe("normalizeUrl", () => {
     expect(() => normalizeUrl("not a url")).toThrow(/web address/i);
     expect(() => normalizeUrl("https://")).toThrow(/web address/i);
     expect(() => normalizeUrl("localhost:3000")).toThrow(/web address/i);
+  });
+});
+
+describe("looksLikeUrl", () => {
+  it("recognizes a link with or without a scheme", () => {
+    expect(looksLikeUrl("https://example.com/a?b=1")).toBe(true);
+    expect(looksLikeUrl("http://example.com")).toBe(true);
+    expect(looksLikeUrl("example.com")).toBe(true);
+    expect(looksLikeUrl("www.example.co.il/article/123")).toBe(true);
+    expect(looksLikeUrl("  example.com/post  ")).toBe(true);
+  });
+
+  it("rejects prose, which is never one bare token", () => {
+    expect(looksLikeUrl("Hello there.")).toBe(false);
+    expect(looksLikeUrl("Read example.com for more")).toBe(false);
+    expect(looksLikeUrl("Line one\nexample.com")).toBe(false);
+    expect(looksLikeUrl("שלום עולם")).toBe(false);
+  });
+
+  it("rejects tokens that only look domain-ish", () => {
+    expect(looksLikeUrl("e.g.")).toBe(false); // trailing dot, no TLD
+    expect(looksLikeUrl("hello")).toBe(false); // no dot
+    expect(looksLikeUrl("3.5")).toBe(false); // numeric TLD
+    expect(looksLikeUrl("")).toBe(false);
+    expect(looksLikeUrl("   ")).toBe(false);
+  });
+
+  it("rejects a very long single token", () => {
+    expect(looksLikeUrl(`example.com/${"a".repeat(2100)}`)).toBe(false);
   });
 });
 

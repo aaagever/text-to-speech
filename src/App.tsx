@@ -5,13 +5,13 @@ import { ModelSelector } from "./components/ModelSelector";
 import { VoiceSelector } from "./components/VoiceSelector";
 import { TextInput } from "./components/TextInput";
 import { FileUploader } from "./components/FileUploader";
-import { UrlFetcher } from "./components/UrlFetcher";
 import { AudioPlayer } from "./components/AudioPlayer";
 import type { ProviderId, Progress, VoiceOption } from "./lib/types";
 import { PROVIDERS, getProvider, getModelOption, charLimitFor } from "./lib/providers";
 import { stripMarkdown } from "./lib/markdown-strip";
 import { chunkText } from "./lib/chunker";
 import { costEstimateLabel } from "./lib/cost";
+import { fetchArticle, looksLikeUrl } from "./lib/fetch-article";
 import { synthesizeText, isAbortError, WARN_INPUT_CHARS } from "./lib/synthesize";
 import { formatDebugReport } from "./lib/debug";
 import { loadPrefs, savePrefs } from "./lib/prefs";
@@ -82,6 +82,9 @@ function App() {
   const [copied, setCopied] = useState(false);
 
   const abortRef = useRef<AbortController | null>(null);
+  const urlAbortRef = useRef<AbortController | null>(null);
+  // The last link auto-fetched, so blur cannot retry a failing link forever.
+  const lastUrlAttemptRef = useRef<string | null>(null);
   const resultUrlRef = useRef<string | null>(null);
   const playerRef = useRef<HTMLDivElement>(null);
 
@@ -215,6 +218,43 @@ function App() {
     void handleGenerate(fetchedText);
   }
 
+  // Replace a link in the text box with the article it points at.
+  async function runUrlFetch(rawUrl: string) {
+    lastUrlAttemptRef.current = rawUrl.trim();
+    setError(null);
+    setErrorHasReport(false);
+    setUrlBusy(true);
+
+    const controller = new AbortController();
+    urlAbortRef.current = controller;
+
+    try {
+      const { text: fetched, sourceName } = await fetchArticle(rawUrl, controller.signal);
+      handleUrlText(fetched, sourceName);
+    } catch (err) {
+      if (isAbortError(err)) return; // cancelling is a silent reset
+      // The link stays in the box so it can be corrected and tried again.
+      setError(err instanceof Error ? err.message : "Couldn't read that page.");
+      setErrorHasReport(true);
+    } finally {
+      setUrlBusy(false);
+      urlAbortRef.current = null;
+    }
+  }
+
+  // Called after a paste and on blur. Fetches only when the box holds nothing
+  // but a link, and never re-fetches the same link twice in a row, so a failed
+  // link does not retry every time focus leaves the field.
+  function handleMaybeUrl(value: string) {
+    if (!looksLikeUrl(value)) {
+      lastUrlAttemptRef.current = null;
+      return;
+    }
+    if (isGenerating || urlBusy) return;
+    if (lastUrlAttemptRef.current === value.trim()) return;
+    void runUrlFetch(value);
+  }
+
   function voiceLabelOf(id: string): string {
     return voiceOptions?.find((v) => v.id === id)?.label ?? id;
   }
@@ -225,6 +265,13 @@ function App() {
   async function handleGenerate(overrideText?: string) {
     const source = overrideText ?? text;
     if (!apiKey || !source.trim() || !voice) return;
+
+    // Safety net: pressing Generate on a bare link fetches the article instead
+    // of reading the address out loud, whatever put the link there.
+    if (overrideText == null && looksLikeUrl(source)) {
+      await runUrlFetch(source);
+      return;
+    }
 
     const cleanedNow = overrideText != null ? stripMarkdown(overrideText) : cleaned;
     const costNow =
@@ -328,6 +375,7 @@ function App() {
               parts={parts}
               costEstimate={costEstimate}
               onClear={handleClearText}
+              onMaybeUrl={handleMaybeUrl}
             />
             <FileUploader
               onText={handleFileText}
@@ -337,17 +385,6 @@ function App() {
               }}
               loadedName={loadedName}
             />
-            <UrlFetcher
-              onText={handleUrlText}
-              onError={(msg) => {
-                setError(msg);
-                // Unlike file errors, a fetch failure has a diagnostic record
-                // behind it, so offer "Copy details".
-                setErrorHasReport(true);
-              }}
-              onBusyChange={setUrlBusy}
-              disabled={isGenerating}
-            />
           </div>
           {overLimitWarning && (
             <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2">
@@ -356,7 +393,24 @@ function App() {
           )}
 
           <div className="border-t border-gray-100 pt-4">
-            {isGenerating ? (
+            {urlBusy ? (
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-sm text-gray-600">
+                  <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  Fetching the article...
+                </div>
+                <button
+                  type="button"
+                  onClick={() => urlAbortRef.current?.abort()}
+                  className="text-sm text-gray-600 hover:text-gray-800 underline"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : isGenerating ? (
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-sm text-gray-600">
                   <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">

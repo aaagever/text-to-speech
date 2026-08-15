@@ -41,6 +41,21 @@ const TERMINAL = /[.!?…:;]$/;
 const INVALID_URL_MESSAGE =
   "That doesn't look like a web address. Paste a full link like example.com/article.";
 
+// A pasted link, with or without a scheme. Both patterns require the whole
+// string to match, and the caller rejects anything containing whitespace, so
+// prose can never be mistaken for a link (an article is never one bare token).
+const WITH_SCHEME = /^https?:\/\/\S+$/i;
+const BARE_DOMAIN = /^[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}(\/\S*)?$/i;
+
+// True when the text is nothing but a link, so it should be fetched rather than
+// spoken out loud. Deliberately strict: whitespace, a missing top-level domain,
+// or a trailing dot (as in "e.g.") all disqualify it.
+export function looksLikeUrl(text: string): boolean {
+  const t = text.trim();
+  if (!t || /\s/.test(t) || t.length > 2000) return false;
+  return WITH_SCHEME.test(t) || BARE_DOMAIN.test(t);
+}
+
 // Accept what a person actually pastes: a bare domain, a full URL, or one with
 // stray whitespace. Throws a friendly Error when it can't be made sense of.
 export function normalizeUrl(raw: string): string {

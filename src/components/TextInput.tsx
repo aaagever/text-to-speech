@@ -8,9 +8,22 @@ interface Props {
   costEstimate?: string | null;
   // Empty the field (and any loaded-file name). Shown only when there is text.
   onClear: () => void;
+  // Called with the settled field value when the content may have become a
+  // link: after a paste, and when focus leaves. Deliberately NOT on every
+  // keystroke, because a URL typed by hand is briefly valid partway through
+  // ("stratechery.com" on the way to "stratechery.com/an-article"), and that
+  // would fetch the wrong page.
+  onMaybeUrl: (value: string) => void;
 }
 
-export function TextInput({ value, onChange, parts, costEstimate, onClear }: Props) {
+export function TextInput({
+  value,
+  onChange,
+  parts,
+  costEstimate,
+  onClear,
+  onMaybeUrl,
+}: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   function handleClear() {
@@ -21,9 +34,8 @@ export function TextInput({ value, onChange, parts, costEstimate, onClear }: Pro
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-1.5">
-        <label className="block text-sm font-medium text-gray-700">Text</label>
-        {value.length > 0 && (
+      {value.length > 0 && (
+        <div className="flex items-center justify-end mb-1.5">
           <button
             type="button"
             onClick={handleClear}
@@ -31,15 +43,24 @@ export function TextInput({ value, onChange, parts, costEstimate, onClear }: Pro
           >
             Clear
           </button>
-        )}
-      </div>
+        </div>
+      )}
       <textarea
         ref={textareaRef}
         dir="auto"
         rows={9}
         value={value}
+        aria-label="Text or article link to speak"
         onChange={(e) => onChange(e.target.value)}
-        placeholder="Paste text here, or drop a file below."
+        // Read the value after the paste has been applied, straight from the
+        // element, so it is never a render behind.
+        onPaste={() => {
+          setTimeout(() => {
+            if (textareaRef.current) onMaybeUrl(textareaRef.current.value);
+          }, 0);
+        }}
+        onBlur={(e) => onMaybeUrl(e.target.value)}
+        placeholder="Paste text or an article link here, or drop a file below."
         className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-y"
       />
       <div className="flex items-center justify-end mt-1.5">

@@ -8,7 +8,7 @@ Bring your own API key. Your key is stored only in your browser and is sent only
 
 - **Three providers:** OpenAI, ElevenLabs, and Google Gemini, each with a choice of models (with an approximate cost shown per model) and an alphabetical voice list.
 - **Paste or drop a file:** `.txt`, `.md`, or `.docx`. Markdown and Word formatting are cleaned so the voice never reads "hashtag hashtag title" or spells out a URL.
-- **Or paste a link:** give it the address of a blog post or news article and the page is fetched, stripped of ads and navigation, and read aloud automatically. Pages behind a paywall or a login cannot be read; paste the text instead.
+- **Or paste a link into the same box:** give it the address of a blog post or news article and the page is fetched, stripped of ads and navigation, and read aloud automatically. There is no separate field to find: the app works out whether you pasted text or a link. Pages behind a paywall or a login cannot be read; paste the text instead.
 - **English and Hebrew:** all three providers voice Hebrew (on ElevenLabs, use the Eleven v3 model). The editor is right-to-left aware.
 - **Long text just works:** it is split at sentence boundaries, synthesized part by part with progress, and stitched into one file.
 - **Player:** play/pause, seek, skip back/forward 15 and 30 seconds, and change speed from 0.75x to 2x.

@@ -2,6 +2,16 @@
 
 Dated architecture decisions and their rationale. Newest first.
 
+## 2026-08-15: A link goes in the main text box, not a dedicated field
+
+The first cut shipped a separate URL input with its own Fetch button. That is one more field to look at, and it makes the user classify their own input before the app will help. Since a link is trivially distinguishable from prose, the field was removed and the main text box now accepts either: paste a link and the article is fetched and spoken; paste text and nothing changes. The "Text" label went too, since the placeholder already says what the box is for (it survives as an `aria-label`).
+
+**Detection** is `looksLikeUrl` in `src/lib/fetch-article.ts`: the entire trimmed value must be one token with no whitespace, a real top-level domain, and no trailing dot. An article is never a single bare token, so prose cannot be mistaken for a link; `e.g.`, `3.5`, and any text containing spaces or newlines are all rejected.
+
+**The trigger is the subtle part, and it is deliberately not `onChange`.** A URL typed by hand is briefly a valid URL partway through: typing `stratechery.com/an-article` passes through `stratechery.com`, and a keystroke trigger would fetch the homepage and throw away the rest. So detection runs on **paste** (how links actually arrive; the handler reads the settled value off the element rather than trusting React state) and on **blur**, with a third safety net inside `handleGenerate`: pressing Generate while the box holds only a link fetches the article instead of reading the address out loud. That last one makes the feature correct regardless of how the link got there. `lastUrlAttemptRef` prevents blur from re-fetching the same failing link every time focus leaves.
+
+A failed fetch leaves the link in the box so it can be corrected and retried.
+
 ## 2026-08-15: Article-from-URL via Jina Reader (keyless), with auto-generate
 
 Paste a link, get audio. The app is fully static and cannot fetch arbitrary pages itself (almost no site sends permissive CORS headers), and raw HTML is full of ads, nav, and related-links, so the fetch needs something that both allows browser calls and extracts clean article text.

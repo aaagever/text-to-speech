@@ -28,6 +28,7 @@ Prioritized enhancements beyond V1. None are required for the tool to work.
 
 ### 2026-08-15
 
+- **One input for text and links.** The dedicated URL field and its Fetch button are gone: paste a link into the main text box and it is recognized, fetched, and spoken. Detection fires on paste and blur, plus a fallback when Generate is pressed on a bare link, but never on keystrokes (a hand-typed URL is briefly valid partway through). The "Text" label was dropped as redundant with the placeholder, surviving as an `aria-label`. `src/components/UrlFetcher.tsx` deleted; `looksLikeUrl` added to `src/lib/fetch-article.ts` with 4 more tests. See decisions.md.
 - **Article from a URL, spoken automatically.** Paste a link (a bare domain works too) and the page is fetched through Jina Reader, stripped of ads and navigation, titled, and sent straight to synthesis with no second click. Guards stop the auto-start for very long pages (over 60,000 chars), when a run is already going, and before a key/voice is set; a page that yields under 200 chars of text is reported as a failed read rather than spoken. Every attempt is recorded for the "Copy details" report (`url fetches:` section with URL, outcome, timing, status, chars, body snippet), so a failure can be copied into a bug report. New `src/lib/fetch-article.ts` + `src/components/UrlFetcher.tsx`; 24 new unit tests; verified live against a normal essay, a Hebrew site, and a page with no article text. See decisions.md.
 
 ### 2026-08-12
