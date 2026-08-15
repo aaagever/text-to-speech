@@ -12,7 +12,14 @@ import { stripMarkdown } from "./lib/markdown-strip";
 import { chunkText } from "./lib/chunker";
 import { costEstimateLabel } from "./lib/cost";
 import { fetchArticle, looksLikeUrl } from "./lib/fetch-article";
-import { synthesizeText, isAbortError, WARN_INPUT_CHARS } from "./lib/synthesize";
+import {
+  synthesizeText,
+  isAbortError,
+  runSignature,
+  WARN_INPUT_CHARS,
+  type ResumeState,
+} from "./lib/synthesize";
+import { acquireWakeLock, releaseWakeLock } from "./lib/wake-lock";
 import { formatDebugReport } from "./lib/debug";
 import { loadPrefs, savePrefs } from "./lib/prefs";
 import { logBoot } from "./lib/log";
@@ -79,6 +86,7 @@ function App() {
   const [result, setResult] = useState<Result | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [errorHasReport, setErrorHasReport] = useState(false);
+  const [resumeState, setResumeState] = useState<ResumeState | null>(null);
   const [copied, setCopied] = useState(false);
 
   const abortRef = useRef<AbortController | null>(null);
@@ -184,6 +192,12 @@ function App() {
   const costEstimate =
     modelOpt && cleaned.length > 0 ? costEstimateLabel(cleaned.length, modelOpt.cost) : null;
 
+  // A held resume only applies while the inputs behind it are unchanged, so
+  // editing the text or switching voice quietly retires it (no effect needed).
+  const canResume =
+    !!resumeState &&
+    resumeState.signature === runSignature(provider, model, voice, cleaned);
+
   const retrying = !!progress && (progress.attempt ?? 1) > 1;
   const statusText =
     progress && progress.total > 1
@@ -262,7 +276,7 @@ function App() {
   // `overrideText` lets a just-fetched article start generating in the same tick
   // it is set: the memoized `cleaned` and `costEstimate` still hold the previous
   // render's text, so both are recomputed from the override here.
-  async function handleGenerate(overrideText?: string) {
+  async function handleGenerate(overrideText?: string, resume?: ResumeState) {
     const source = overrideText ?? text;
     if (!apiKey || !source.trim() || !voice) return;
 
@@ -283,21 +297,31 @@ function App() {
     setErrorHasReport(false);
     setProgress(null);
     setIsGenerating(true);
+    // A fresh run invalidates any earlier partial work.
+    if (!resume) setResumeState(null);
 
     const controller = new AbortController();
     abortRef.current = controller;
+    // A long run needs the phone to stay awake; a sleeping screen throttles the
+    // connection and shows up as a part failing mid-download.
+    acquireWakeLock();
 
     const label = `${providerObj.label} · ${model} · ${voiceLabelOf(voice)}`;
 
     try {
       const output = await synthesizeText(
-        { provider: providerObj, model, voice, apiKey, text: cleanedNow },
-        { signal: controller.signal, onProgress: setProgress }
+        { provider: providerObj, model, voice, apiKey, text: cleanedNow, resume },
+        {
+          signal: controller.signal,
+          onProgress: setProgress,
+          onPartial: setResumeState,
+        }
       );
 
       if (resultUrlRef.current) URL.revokeObjectURL(resultUrlRef.current);
       const url = URL.createObjectURL(output.blob);
       resultUrlRef.current = url;
+      setResumeState(null);
       setResult({
         url,
         filename: output.filename,
@@ -315,6 +339,7 @@ function App() {
         playErrorTone();
       }
     } finally {
+      releaseWakeLock();
       setIsGenerating(false);
       setProgress(null);
       abortRef.current = null;
@@ -459,6 +484,22 @@ function App() {
                   {copied ? "Copied!" : "Copy details"}
                 </button>
               )}
+            </div>
+          )}
+
+          {canResume && !isGenerating && !urlBusy && resumeState && (
+            <div className="text-sm text-gray-700 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 flex items-center justify-between gap-3">
+              <span>
+                {resumeState.failedIndex} of {resumeState.chunks.length} parts are
+                already done. Continue from part {resumeState.failedIndex + 1}?
+              </span>
+              <button
+                type="button"
+                onClick={() => handleGenerate(undefined, resumeState)}
+                className="px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium whitespace-nowrap"
+              >
+                Resume
+              </button>
             </div>
           )}
         </div>

@@ -57,6 +57,18 @@ export function pcm16ToFloat32(pcm: ArrayBuffer): Float32Array {
 
 // ---- Browser Web Audio pipeline ---------------------------------------------
 
+// Whether this browser can decode Ogg Opus, which gates asking a provider for
+// opus instead of MP3 on multi-part runs. canPlayType is a reliable proxy for
+// decodeAudioData support and costs nothing; a browser that says no simply
+// keeps getting MP3, so a wrong answer here is never fatal.
+export function canDecodeOggOpus(): boolean {
+  try {
+    return document.createElement("audio").canPlayType('audio/ogg; codecs="opus"') !== "";
+  } catch {
+    return false;
+  }
+}
+
 type DecodedChunk = { samples: Float32Array; sampleRate: number };
 
 async function decodeChunk(
@@ -73,6 +85,23 @@ async function decodeChunk(
   const decoded = await ctx.decodeAudioData(chunk.data.slice(0));
   // Downmix to mono by taking channel 0 (voice content is effectively mono).
   return { samples: decoded.getChannelData(0), sampleRate: decoded.sampleRate };
+}
+
+// Whether this browser can actually decode a chunk we just received. Used once
+// per run to prove the compact transport format really works before committing
+// the rest of the run to it: canPlayType is only a claim, and discovering the
+// truth at assembly time would mean paying for every part and then failing.
+export async function canDecodeChunk(chunk: ChunkAudio): Promise<boolean> {
+  if (chunk.format === "pcm16-24k") return true;
+  const ctx = new AudioContext();
+  try {
+    await ctx.decodeAudioData(chunk.data.slice(0));
+    return true;
+  } catch {
+    return false;
+  } finally {
+    void ctx.close();
+  }
 }
 
 // Decode every chunk, concatenate, and encode a single WAV blob. Used whenever

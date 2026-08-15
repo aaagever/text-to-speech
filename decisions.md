@@ -2,6 +2,20 @@
 
 Dated architecture decisions and their rationale. Newest first.
 
+## 2026-08-15: A failed part no longer discards the whole run (resume, longer retries, wake lock, compact transport)
+
+A field failure on Android: a 5-part Hebrew article where parts 1 to 3 succeeded (73 seconds of generation, 7.4 MB downloaded, already billed) and part 4 failed its retries, throwing all of it away. Four changes, in order of how much they matter.
+
+**Resume from the failed part.** `synthesizeText` now hands the completed audio back through an `onPartial` callback and accepts a `ResumeState` to pick up from. The UI offers "2 of 3 parts are already done. Continue from part 3?" and re-requests only the missing parts, so a bad moment on the network costs one part instead of the article. Resume state is held in memory for the session and is bound to a `runSignature` (provider, model, voice, text length and hash); editing the text or switching voice retires it silently, with no effect needed (see the ApiKeyInput precedent for why effects are avoided here).
+
+**More retry headroom.** `MAX_TRANSIENT_RETRIES` went from 2 to 4, with backoff capped at 15s (2s, 4s, 8s, 15s). The field report showed the old budget giving up after roughly 6 seconds of patience; the new one rides out about 29 seconds of dropout, which matches how long a phone actually loses signal.
+
+**Screen wake lock while generating.** The failed run had been going about 90 seconds, right where a phone screen sleeps, and a backgrounded tab gets its network throttled. `src/lib/wake-lock.ts` holds a screen wake lock for the duration and re-acquires it when the page becomes visible again (the browser drops the lock on hide). Entirely best-effort: every failure is swallowed, since losing the lock must never fail a run.
+
+**Compact transport for multi-part runs.** `gpt-4o-mini-tts` returns roughly 2.6 MB of 128kbps MP3 per part, so a 5-part article pulled about 11 MB over cellular, and every one of those seconds is a chance to drop. Multi-part output is decoded and re-encoded to WAV regardless, so those runs now request opus instead, which is roughly a sixth the size, at no cost to the output. Single-part runs keep MP3 so the passthrough fast path is preserved.
+
+That last one is guarded twice, because being wrong about it would mean paying for every part and failing at assembly: `canDecodeOggOpus()` gates on `canPlayType` before asking, and then `canDecodeChunk()` proves the first part actually decodes before the rest of the run commits. If it does not, the run drops back to MP3 and redoes that one part, so the worst case is a single cheap re-request rather than a lost run.
+
 ## 2026-08-15: A link goes in the main text box, not a dedicated field
 
 The first cut shipped a separate URL input with its own Fetch button. That is one more field to look at, and it makes the user classify their own input before the app will help. Since a link is trivially distinguishable from prose, the field was removed and the main text box now accepts either: paste a link and the article is fetched and spoken; paste text and nothing changes. The "Text" label went too, since the placeholder already says what the box is for (it survives as an `aria-label`).

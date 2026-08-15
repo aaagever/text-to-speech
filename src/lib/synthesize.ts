@@ -9,7 +9,7 @@
 import type { ChunkAudio, Progress, SynthesisOutput, TTSProvider } from "./types";
 import { charLimitFor } from "./providers";
 import { chunkText } from "./chunker";
-import { mergeChunksToWav } from "./audio";
+import { canDecodeChunk, canDecodeOggOpus, mergeChunksToWav } from "./audio";
 import { TtsError } from "./errors";
 import { createLogger } from "./log";
 import {
@@ -21,17 +21,52 @@ import {
 export const WARN_INPUT_CHARS = 60_000;
 export const MAX_INPUT_CHARS = 200_000;
 
+// Everything needed to pick a failed run back up where it stopped, so the parts
+// that already succeeded (which took real time and real money) are not thrown
+// away because one part failed. Held in memory only, for the session.
+export interface ResumeState {
+  // The original chunk plan, reused verbatim so seams land identically.
+  chunks: string[];
+  // Audio for every chunk before `failedIndex`.
+  completed: ChunkAudio[];
+  // Index into `chunks` to restart from.
+  failedIndex: number;
+  // Identifies the run this belongs to; a resume is only offered when the
+  // provider, model, voice, and text still match.
+  signature: string;
+}
+
+// Cheap deterministic fingerprint of a run's inputs. Used to decide whether a
+// held resume state still applies to what is currently on screen.
+export function runSignature(
+  providerId: string,
+  model: string,
+  voice: string,
+  text: string
+): string {
+  let hash = 0;
+  for (let i = 0; i < text.length; i++) {
+    hash = (Math.imul(31, hash) + text.charCodeAt(i)) | 0;
+  }
+  return `${providerId}|${model}|${voice}|${text.length}|${hash}`;
+}
+
 export interface SynthesizeParams {
   provider: TTSProvider;
   model: string;
   voice: string;
   apiKey: string;
   text: string;
+  // Pick up a previously failed run instead of starting over.
+  resume?: ResumeState;
 }
 
 export interface SynthesizeOptions {
   signal: AbortSignal;
   onProgress: (progress: Progress) => void;
+  // Called when a run fails with at least one part already done, handing back
+  // the work so far so the caller can offer to resume.
+  onPartial?: (state: ResumeState) => void;
 }
 
 const log = createLogger("synth");
@@ -88,10 +123,16 @@ function makeFilenameBase(): string {
 }
 
 // How many times to retry a single request after a transient failure (network
-// drop, rate limit, provider 5xx) before giving up on the run. Two retries
-// (three attempts total) recovers the common mobile blip without hammering a
-// provider that is genuinely down.
-const MAX_TRANSIENT_RETRIES = 2;
+// drop, rate limit, provider 5xx) before giving up on the run. Four retries
+// with a backing-off wait (2s, 4s, 8s, 15s, so about 29 seconds of patience on
+// top of the attempts themselves) rides out a phone that loses signal for the
+// better part of a minute. Two retries proved too few in the field.
+const MAX_TRANSIENT_RETRIES = 4;
+
+// Wait before attempt N+1, doubling but capped so the last wait stays sane.
+function backoffMs(attempt: number): number {
+  return Math.min(2000 * 2 ** (attempt - 1), 15_000);
+}
 
 // Synthesize one unit of text, returning one or more audio chunks. A too-long
 // unit is split near its middle and each half synthesized (recursion bounded by
@@ -100,7 +141,7 @@ const MAX_TRANSIENT_RETRIES = 2;
 // retry is about to be waited out, so the caller can reflect it in the UI.
 async function synthesizeUnit(
   provider: TTSProvider,
-  base: { model: string; voice: string; apiKey: string },
+  base: { model: string; voice: string; apiKey: string; preferCompact?: boolean },
   unit: string,
   previousText: string | undefined,
   nextText: string | undefined,
@@ -146,12 +187,12 @@ async function synthesizeUnit(
       // long run from a single dropped request on a flaky mobile network.
       if (err instanceof TtsError && err.retryable && attempt < MAX_TRANSIENT_RETRIES) {
         attempt++;
-        const backoffMs = 2000 * attempt; // 2s, then 4s
+        const wait = backoffMs(attempt);
         log.warn(
-          `transient failure (attempt ${attempt} of ${MAX_TRANSIENT_RETRIES}); retrying in ${backoffMs}ms: ${err.message}`
+          `transient failure (attempt ${attempt} of ${MAX_TRANSIENT_RETRIES}); retrying in ${wait}ms: ${err.message}`
         );
         onRetry?.(attempt + 1); // the attempt number we are about to make
-        await delay(backoffMs, signal);
+        await delay(wait, signal);
         continue;
       }
 
@@ -212,7 +253,7 @@ export async function synthesizeText(
   opts: SynthesizeOptions
 ): Promise<SynthesisOutput> {
   const { provider, model, voice, apiKey, text } = params;
-  const { signal, onProgress } = opts;
+  const { signal, onProgress, onPartial } = opts;
 
   const rec = startDebugRecord({
     provider: provider.id,
@@ -231,21 +272,37 @@ export async function synthesizeText(
       );
     }
 
+    const signature = runSignature(provider.id, model, voice, text);
+    // Only honour resume state that still matches the current inputs.
+    const resume =
+      params.resume && params.resume.signature === signature ? params.resume : undefined;
+
     const limit = charLimitFor(provider.id, model);
-    const chunks = chunkText(text, limit);
+    const chunks = resume ? resume.chunks : chunkText(text, limit);
     rec.chunkPlan = chunks.length;
+
+    // Multi-part output is decoded and stitched into WAV regardless, so those
+    // runs can take a compact transport format and a much smaller download.
+    // Proven against the first part actually received (see below) before the
+    // rest of the run commits to it.
+    let preferCompact = chunks.length > 1 && canDecodeOggOpus();
+    let compactProven = false;
+
+    const startIndex = resume ? resume.failedIndex : 0;
+    const audioChunks: ChunkAudio[] = resume ? [...resume.completed] : [];
     log.info(
-      `run ${rec.runId}: ${provider.id}/${model}/${voice}, ${text.length} chars -> ${chunks.length} part(s) at limit ${limit}`
+      `run ${rec.runId}: ${provider.id}/${model}/${voice}, ${text.length} chars -> ${chunks.length} part(s) at limit ${limit}` +
+        (resume ? `, resuming from part ${startIndex + 1}` : "") +
+        (preferCompact ? ", compact transport" : "")
     );
 
-    const audioChunks: ChunkAudio[] = [];
-    for (let i = 0; i < chunks.length; i++) {
+    for (let i = startIndex; i < chunks.length; i++) {
       if (signal.aborted) throw abortError();
       onProgress({ current: i + 1, total: chunks.length });
       try {
         const units = await synthesizeUnit(
           provider,
-          { model, voice, apiKey },
+          { model, voice, apiKey, preferCompact },
           chunks[i],
           chunks[i - 1],
           chunks[i + 1],
@@ -254,8 +311,28 @@ export async function synthesizeText(
           0,
           (attempt) => onProgress({ current: i + 1, total: chunks.length, attempt })
         );
+        // Prove the compact format decodes here, on the first part, while one
+        // cheap re-request is the whole cost of being wrong. If it does not,
+        // drop back to MP3 and redo just this part.
+        if (preferCompact && !compactProven) {
+          compactProven = true;
+          if (!(await canDecodeChunk(units[0]))) {
+            log.warn("compact transport did not decode; falling back to mp3");
+            preferCompact = false;
+            i--; // redo this part as mp3
+            continue;
+          }
+        }
         audioChunks.push(...units);
       } catch (err) {
+        // Hand back the parts already done so the caller can offer to resume
+        // rather than discard minutes of generated (and billed) audio.
+        if (!isAbortError(err) && audioChunks.length > 0) {
+          log.warn(
+            `part ${i + 1} of ${chunks.length} failed with ${audioChunks.length} part(s) done; resume available`
+          );
+          onPartial?.({ chunks, completed: audioChunks, failedIndex: i, signature });
+        }
         // Tag which part failed when there is more than one.
         if (!isAbortError(err) && chunks.length > 1 && err instanceof TtsError) {
           throw new TtsError(`Part ${i + 1} of ${chunks.length}: ${err.message}`, {

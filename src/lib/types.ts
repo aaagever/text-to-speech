@@ -4,8 +4,10 @@ export type ProviderId = "openai" | "elevenlabs" | "gemini";
 
 // Audio a provider returns for a single chunk. The discriminant tells the audio
 // pipeline whether it can pass the bytes through as-is (mp3) or must decode raw
-// PCM (Gemini returns 24kHz 16-bit mono PCM, base64-decoded to bytes).
-export type ChunkFormat = "mp3" | "pcm16-24k";
+// PCM (Gemini returns 24kHz 16-bit mono PCM, base64-decoded to bytes). "opus" is
+// only ever requested for multi-part runs, which are re-encoded to WAV anyway,
+// so its much smaller download costs nothing in output quality.
+export type ChunkFormat = "mp3" | "opus" | "pcm16-24k";
 
 export interface ChunkAudio {
   data: ArrayBuffer;
@@ -39,6 +41,10 @@ export interface SynthesisRequest {
   // Prosody context for continuity across chunks (ElevenLabs only).
   previousText?: string;
   nextText?: string;
+  // True when this result will be decoded and re-encoded locally regardless, so
+  // the provider may return a compact format to keep the download small. Set
+  // for multi-part runs; providers without a compact option ignore it.
+  preferCompact?: boolean;
 }
 
 export interface TTSProvider {

@@ -27,6 +27,11 @@ async function synthesize(
   req: SynthesisRequest,
   signal: AbortSignal
 ): Promise<ChunkAudio> {
+  // Opus is roughly a sixth the size of the 128kbps MP3 for the same speech,
+  // which matters a lot on a phone: a dropped connection mid-download is the
+  // most common way a long run dies. Only used when the caller says the audio
+  // will be re-encoded locally anyway, so nothing is lost.
+  const wireFormat = req.preferCompact ? "opus" : "mp3";
   const data = await ttsFetchArrayBuffer(
     "https://api.openai.com/v1/audio/speech",
     {
@@ -39,13 +44,13 @@ async function synthesize(
         model: req.model,
         voice: req.voice,
         input: req.text,
-        response_format: "mp3",
+        response_format: wireFormat,
       }),
     },
     { provider: "openai", step: "synthesize" },
     signal
   );
-  return { data, format: "mp3" };
+  return { data, format: wireFormat };
 }
 
 export const openai: TTSProvider = {
