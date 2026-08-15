@@ -1,6 +1,6 @@
 // Namespaced console logging so any run can be traced from the browser console,
 // and so a bug report reads clearly. Namespaces: app, synth, openai, elevenlabs,
-// gemini, audio, file. API keys are NEVER passed to these functions.
+// gemini, audio, file, fetch. API keys are NEVER passed to these functions.
 
 // Keep in sync with package.json "version" and the <meta name="version"> tag.
 export const APP_VERSION = "1.0.0";
@@ -12,7 +12,8 @@ export type LogNamespace =
   | "elevenlabs"
   | "gemini"
   | "audio"
-  | "file";
+  | "file"
+  | "fetch";
 
 export interface Logger {
   info: (...args: unknown[]) => void;

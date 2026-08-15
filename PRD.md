@@ -17,10 +17,11 @@ A single primary user (Joel). No accounts, no multi-tenant concerns. Technical e
 3. Compare the same text across providers/models/voices to pick the best sound for a piece.
 4. Generate an MP3 to keep (for a specific voice-over), then discard it; no file clutter.
 5. Hear Hebrew text in a natural voice (works on all three providers; ElevenLabs requires the v3 model).
+6. Paste a link to a blog post or news article and listen to it like a podcast, without copying the text by hand.
 
 ## Functional requirements
 
-- **Input:** paste into a textarea (RTL-aware) or drag-drop / browse a `.txt`, `.md`, or `.docx` file.
+- **Input:** paste into a textarea (RTL-aware), drag-drop / browse a `.txt`, `.md`, or `.docx` file, or paste an article URL, which is fetched and cleaned through Jina Reader and then spoken automatically. Auto-generation is skipped for very long pages (over 60,000 characters), while a run is in flight, and before a key and voice are set; a page yielding under 200 characters is reported as unreadable (paywalls and login walls cannot be fetched).
 - **Cleanup:** Markdown and docx are converted to speech-friendly text (headings become sentences with pauses, lists and tables linearize, code blocks drop, links become their anchor text, bare URLs become the hostname). Never voices formatting characters. Safe for Hebrew and plain text.
 - **Providers/models/voices:** choose provider, then a model within it, then a voice. Models are labeled with capability hints (Hebrew support, speed/quality, preview status) and an approximate cost per 1,000 characters. Voices are listed alphabetically. ElevenLabs voices come from the user's own account.
 - **Remembers selections:** the last-used provider, per-provider model and voice, and playback speed persist in localStorage and are restored on the next visit. Voice is remembered per provider (all of a provider's models share one voice set).

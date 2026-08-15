@@ -1,6 +1,9 @@
 // Per-run diagnostic records, kept in memory (last 5). Powers the error
 // banner's "Copy details" report so a bug can be diagnosed without a repro, and
 // is exposed as window.__t2sDebug for live inspection. Contains NO API keys.
+// Article-fetch attempts (URL -> Jina Reader) are recorded alongside synthesis
+// runs so a failed fetch can be copied into a bug report the same way. Those
+// records carry the page URL the user pasted, never a key.
 
 import type { ProviderId } from "./types";
 import { APP_VERSION } from "./log";
@@ -34,13 +37,28 @@ export interface DebugRecord {
   durationSec?: number | null;
 }
 
+// One attempt to fetch an article by URL. Recorded for success and failure
+// alike so the "Copy details" report shows what happened.
+export interface FetchAttempt {
+  url: string;
+  startedAt: string;
+  ms: number;
+  outcome: "ok" | "failed" | "cancelled";
+  httpStatus?: number;
+  contentChars?: number;
+  error?: string;
+  bodySnippet?: string;
+}
+
 const MAX_RECORDS = 5;
 const records: DebugRecord[] = [];
+const fetches: FetchAttempt[] = [];
 let counter = 0;
 
 interface DebugGlobal {
   version: string;
   records: DebugRecord[];
+  fetches: FetchAttempt[];
   report: (index?: number) => string;
 }
 
@@ -48,8 +66,19 @@ function syncGlobal(): void {
   (window as unknown as { __t2sDebug?: DebugGlobal }).__t2sDebug = {
     version: APP_VERSION,
     records,
+    fetches,
     report: (index = 0) => formatDebugReport(records[index]),
   };
+}
+
+export function recordFetchAttempt(attempt: FetchAttempt): void {
+  fetches.unshift(attempt);
+  while (fetches.length > MAX_RECORDS) fetches.pop();
+  syncGlobal();
+}
+
+export function getFetchAttempts(): FetchAttempt[] {
+  return fetches;
 }
 
 export function startDebugRecord(init: {
@@ -89,9 +118,36 @@ export function getDebugRecords(): DebugRecord[] {
 
 // Plain-text report the user copies from the error banner. Redaction note: the
 // record itself never stores keys, so this is safe to paste anywhere.
+function fetchLines(): string[] {
+  if (!fetches.length) return [];
+  const lines = ["url fetches:"];
+  for (const f of fetches) {
+    const bits = [`${f.outcome}`, `${f.ms}ms`];
+    if (f.httpStatus !== undefined) bits.push(`status ${f.httpStatus}`);
+    if (f.contentChars !== undefined) bits.push(`${f.contentChars} chars`);
+    lines.push(`  ${f.url}: ${bits.join(", ")}`);
+    if (f.error) lines.push(`    error: ${f.error}`);
+    if (f.bodySnippet) lines.push(`    body: ${f.bodySnippet}`);
+  }
+  return lines;
+}
+
 export function formatDebugReport(rec?: DebugRecord): string {
   const r = rec ?? records[0];
-  if (!r) return "Text to Speech: no runs recorded yet.";
+
+  // A URL fetch can fail before any synthesis has run, so the report still has
+  // something useful to say with no runs recorded.
+  if (!r) {
+    const head = [
+      "Text to Speech -- debug report",
+      `app version: ${APP_VERSION}`,
+      `user agent: ${navigator.userAgent}`,
+      "runs: none recorded yet",
+    ];
+    const fetchSection = fetchLines();
+    if (!fetchSection.length) return "Text to Speech: no runs recorded yet.";
+    return [...head, ...fetchSection, "(API keys are never included in this report.)"].join("\n");
+  }
 
   const lines = [
     "Text to Speech -- debug report",
@@ -124,6 +180,7 @@ export function formatDebugReport(rec?: DebugRecord): string {
     if (r.error.bodySnippet) lines.push(`  provider body: ${r.error.bodySnippet}`);
   }
 
+  lines.push(...fetchLines());
   lines.push("(API keys are never included in this report.)");
   return lines.join("\n");
 }

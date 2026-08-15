@@ -5,6 +5,7 @@ import { ModelSelector } from "./components/ModelSelector";
 import { VoiceSelector } from "./components/VoiceSelector";
 import { TextInput } from "./components/TextInput";
 import { FileUploader } from "./components/FileUploader";
+import { UrlFetcher } from "./components/UrlFetcher";
 import { AudioPlayer } from "./components/AudioPlayer";
 import type { ProviderId, Progress, VoiceOption } from "./lib/types";
 import { PROVIDERS, getProvider, getModelOption, charLimitFor } from "./lib/providers";
@@ -72,6 +73,7 @@ function App() {
   const [voicesLoading, setVoicesLoading] = useState(false);
   const [voicesError, setVoicesError] = useState<string | null>(null);
 
+  const [urlBusy, setUrlBusy] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [progress, setProgress] = useState<Progress | null>(null);
   const [result, setResult] = useState<Result | null>(null);
@@ -198,12 +200,37 @@ function App() {
     setLoadedName(null);
   }
 
+  // A fetched article goes straight to speech, so a link is one action. Three
+  // cases deliberately stop short of generating and leave the text in place:
+  // no key/voice yet (the disabled Generate button explains itself), a run
+  // already in flight, and text long enough to be worth a look and a manual
+  // press first (the over-limit warning renders on its own).
+  function handleUrlText(fetchedText: string, sourceName: string) {
+    setText(fetchedText);
+    setLoadedName(sourceName);
+    setError(null);
+    if (!apiKey || !voice) return;
+    if (isGenerating) return;
+    if (fetchedText.length > WARN_INPUT_CHARS) return;
+    void handleGenerate(fetchedText);
+  }
+
   function voiceLabelOf(id: string): string {
     return voiceOptions?.find((v) => v.id === id)?.label ?? id;
   }
 
-  async function handleGenerate() {
-    if (!apiKey || !text.trim() || !voice) return;
+  // `overrideText` lets a just-fetched article start generating in the same tick
+  // it is set: the memoized `cleaned` and `costEstimate` still hold the previous
+  // render's text, so both are recomputed from the override here.
+  async function handleGenerate(overrideText?: string) {
+    const source = overrideText ?? text;
+    if (!apiKey || !source.trim() || !voice) return;
+
+    const cleanedNow = overrideText != null ? stripMarkdown(overrideText) : cleaned;
+    const costNow =
+      modelOpt && cleanedNow.length > 0
+        ? costEstimateLabel(cleanedNow.length, modelOpt.cost)
+        : null;
 
     setError(null);
     setErrorHasReport(false);
@@ -217,7 +244,7 @@ function App() {
 
     try {
       const output = await synthesizeText(
-        { provider: providerObj, model, voice, apiKey, text: cleaned },
+        { provider: providerObj, model, voice, apiKey, text: cleanedNow },
         { signal: controller.signal, onProgress: setProgress }
       );
 
@@ -229,7 +256,7 @@ function App() {
         filename: output.filename,
         label,
         durationSec: output.durationSec,
-        costEstimate,
+        costEstimate: costNow,
         retriedParts: output.retriedParts,
       });
     } catch (err) {
@@ -261,7 +288,8 @@ function App() {
     }
   }
 
-  const canGenerate = !!apiKey && !!text.trim() && !!voice && !isGenerating;
+  const canGenerate =
+    !!apiKey && !!text.trim() && !!voice && !isGenerating && !urlBusy;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -309,6 +337,17 @@ function App() {
               }}
               loadedName={loadedName}
             />
+            <UrlFetcher
+              onText={handleUrlText}
+              onError={(msg) => {
+                setError(msg);
+                // Unlike file errors, a fetch failure has a diagnostic record
+                // behind it, so offer "Copy details".
+                setErrorHasReport(true);
+              }}
+              onBusyChange={setUrlBusy}
+              disabled={isGenerating}
+            />
           </div>
           {overLimitWarning && (
             <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2">
@@ -336,7 +375,7 @@ function App() {
               </div>
             ) : (
               <button
-                onClick={handleGenerate}
+                onClick={() => handleGenerate()}
                 disabled={!canGenerate}
                 title={
                   !apiKey

@@ -4,6 +4,8 @@ Prioritized enhancements beyond V1. None are required for the tool to work.
 
 ## High value
 
+- **Optional Jina API key field.** URL fetching uses the keyless tier (about 20 requests a minute). If 429s become annoying, add an optional key field (free keys come with a token allowance) and send it as a bearer token in `src/lib/fetch-article.ts`.
+- **PWA share target.** On mobile, share a page from the browser's share sheet straight into the URL field instead of copying the link and switching apps. Needs a web app manifest with `share_target` and a service worker.
 - **Gemini 3.1 Interactions response shape.** The 3.1 preview uses the newer Interactions API; the response parsing in `src/lib/providers/gemini.ts` (`synthesizeInteractions`) is best-effort (`output_audio.data` with a fallback). Confirm against a live key and lock it in. The 2.5 models are the default and use the well-understood `generateContent` shape.
 - **OpenAI style instructions.** `gpt-4o-mini-tts` accepts an `instructions` field controlling tone, accent, pace, emotion. Add an optional "delivery" text field (only shown for that model). Plumbed nowhere in V1.
 - **MP3 output for multi-part / Gemini without a heavy dependency.** V1 downloads stitched or PCM audio as WAV (bigger files) to avoid an LGPL MP3 encoder. Options to revisit: (a) concatenate multiple MP3 parts from OpenAI/ElevenLabs at the container level (no re-encode) so long text from those providers stays MP3; (b) reconsider an MP3 encoder if WAV size becomes annoying.
@@ -23,6 +25,10 @@ Prioritized enhancements beyond V1. None are required for the tool to work.
 - **Light/dark** parity (V1 is light only, matching the sibling).
 
 ## Done
+
+### 2026-08-15
+
+- **Article from a URL, spoken automatically.** Paste a link (a bare domain works too) and the page is fetched through Jina Reader, stripped of ads and navigation, titled, and sent straight to synthesis with no second click. Guards stop the auto-start for very long pages (over 60,000 chars), when a run is already going, and before a key/voice is set; a page that yields under 200 chars of text is reported as a failed read rather than spoken. Every attempt is recorded for the "Copy details" report (`url fetches:` section with URL, outcome, timing, status, chars, body snippet), so a failure can be copied into a bug report. New `src/lib/fetch-article.ts` + `src/components/UrlFetcher.tsx`; 24 new unit tests; verified live against a normal essay, a Hebrew site, and a page with no article text. See decisions.md.
 
 ### 2026-08-12
 

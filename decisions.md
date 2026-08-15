@@ -2,6 +2,24 @@
 
 Dated architecture decisions and their rationale. Newest first.
 
+## 2026-08-15: Article-from-URL via Jina Reader (keyless), with auto-generate
+
+Paste a link, get audio. The app is fully static and cannot fetch arbitrary pages itself (almost no site sends permissive CORS headers), and raw HTML is full of ads, nav, and related-links, so the fetch needs something that both allows browser calls and extracts clean article text.
+
+**Chosen: Jina Reader** (`GET https://r.jina.ai/{encoded url}`, `Accept: application/json`). Verified by preflight from this app's origin on 2026-08-15: it echoes `access-control-allow-origin: https://t2s.joeleilat.com`, so the browser can call it directly and the fully-static architecture survives. It is free with no API key (roughly 20 requests a minute), returns article Markdown with boilerplate already stripped, renders JavaScript-heavy pages headlessly, and reads PDF links. Its Markdown needs no new cleanup because `stripMarkdown` already runs on all text.
+
+**Rejected: Exa.** Preflighting `api.exa.ai/contents` from this origin returns no `access-control-allow-origin`, so browsers block it. Using it would mean building a proxy, which is exactly the cost we are avoiding. (Joel already has an Exa key, so this was worth testing rather than assuming.)
+
+**Rejected for now: our own Cloudflare Pages Function proxy + Readability/Defuddle in the browser.** Best privacy and no third-party rate limit, but it breaks "no backend", cannot render JavaScript-heavy pages, and news sites routinely 403 datacenter IPs. Kept as the documented fallback if Jina degrades.
+
+**Known limits:** paywalled and login-walled pages cannot be read (nothing legitimate fixes that; the error says so and pasting text manually still works), and the pasted page URL is sent to Jina. That is the one exception to "the browser only talks to the provider you pick", and it is called out in the README.
+
+**Auto-generate, with three guards.** Joel chose link-in/audio-out with no intermediate click. `handleUrlText` still stops short of generating when: the text exceeds `WARN_INPUT_CHARS` (60,000, so a huge page is reviewed and started manually, and the existing amber warning explains why), a run is already in flight, or no key/voice is set yet. Extraction shorter than `MIN_ARTICLE_CHARS` (200) is treated as a failed fetch, so a cookie wall never becomes 12 seconds of nonsense audio.
+
+**Implementation notes.** `handleGenerate` takes an optional `overrideText` because `setText` plus an immediate generate would otherwise read the previous render's memoized `cleaned` and `costEstimate`; the override path recomputes both. A pending-state effect was rejected: this repo enforces eslint's `set-state-in-effect` (see the 2026-08-05 ApiKeyInput entry). The fetch layer throws plain `Error`s rather than `TtsError` because `TtsErrorContext` is keyed by `ProviderId`, which also keys the debug records and prefs; widening it for one input-side call would ripple for no benefit. A 45s client timeout composes with the user's cancel via `AbortSignal.any`, and Jina is separately asked to cap its own render at 30s.
+
+**Fetch attempts are recorded for bug reports.** Every attempt (success, failure, cancel) is stored via `recordFetchAttempt` and printed in the "Copy details" report under `url fetches:` with URL, outcome, timing, HTTP status, char count, and a short response-body snippet. Fetch errors therefore set `errorHasReport = true` (unlike file errors, which have no diagnostics behind them), and the report now renders even when no synthesis has run yet, since a fetch can fail before the first generation.
+
 ## 2026-08-12: Per-conversion cost is an estimate from input length; retries are surfaced
 
 Two related UI additions, both prompted by the mobile failures above.
