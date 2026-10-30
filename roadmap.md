@@ -38,6 +38,12 @@ Confirmed end-to-end with real keys.
 - Voice selection persists per provider across reloads, verified live including the ElevenLabs async-fetch case.
 - Residual optional checks, non-blocking (edge paths only): the too-long auto-split on very long Hebrew for gpt-4o-mini-tts, the Gemini 3.1 preview model's Interactions response shape, and exact wrong-key / out-of-credits message wording per provider. Confirm if any ever surfaces in real use.
 
+## Milestone 5: Redesign to match s2t (NEXT)
+
+**Goal**: t2s gets the light/dark redesign s2t shipped on 2026-10-29, so the sibling apps match again.
+**Tasks**: follow section 4 of `../call-transcription/DESIGN.md`; includes the key-field autofill fix.
+**Exit criterion**: live on t2s.joeleilat.com, checked in light, dark and at phone width.
+
 ## Later
 
 See `backlog.md`. Candidate themes: richer delivery control (OpenAI `instructions`, ElevenLabs voice settings), MP3 output for multi-part without a heavy dependency, cost estimation, and voice previews.

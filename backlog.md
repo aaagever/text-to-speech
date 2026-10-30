@@ -4,6 +4,9 @@ Prioritized enhancements beyond V1. None are required for the tool to work.
 
 ## High value
 
+- **Bring s2t's 2026-10-29 redesign to t2s (Joel wants this).** Light/dark with a theme switch, glass cards, sectioned form with icon headings, provider cards (a card deck on phones), the halo + Illos drop zone, gradient Generate button with step progress, and a disabled-reason line. Everything to copy, adapt and avoid is in `../call-transcription/DESIGN.md` (section 4 is the step list); the approved mockup is `../call-transcription/design/mockup-2026-10-29.html`. Supersedes the Low item "Light/dark parity".
+- **Password managers can fill the API key field.** `src/components/ApiKeyInput.tsx` uses `type="password"`, so the browser may fill in a saved password a moment after the field appears, and Save would store it as the key. s2t hit exactly this on 2026-10-29. Fix: a text field masked with `-webkit-text-security`, plus `autoComplete="off"`, `data-1p-ignore`, `data-lpignore="true"` and `data-form-type="other"` (see s2t's `ApiKeyInput.tsx`). Part of the redesign item above, but worth doing on its own if that waits.
+
 - **Optional Jina API key field.** URL fetching uses the keyless tier (about 20 requests a minute). If 429s become annoying, add an optional key field (free keys come with a token allowance) and send it as a bearer token in `src/lib/fetch-article.ts`.
 - **PWA share target.** On mobile, share a page from the browser's share sheet straight into the URL field instead of copying the link and switching apps. Needs a web app manifest with `share_target` and a service worker.
 - **Gemini 3.1 Interactions response shape.** The 3.1 preview uses the newer Interactions API; the response parsing in `src/lib/providers/gemini.ts` (`synthesizeInteractions`) is best-effort (`output_audio.data` with a fallback). Confirm against a live key and lock it in. The 2.5 models are the default and use the well-understood `generateContent` shape.
@@ -22,7 +25,7 @@ Prioritized enhancements beyond V1. None are required for the tool to work.
 - **Per-provider default voice memory across sessions** is already handled by prefs; consider remembering the last few inputs too.
 - **Keyboard shortcuts** for play/pause and skip in the player.
 - **Drag-drop multiple files** concatenated into one script.
-- **Light/dark** parity (V1 is light only, matching the sibling).
+- ~~**Light/dark** parity (V1 is light only, matching the sibling).~~ Superseded 2026-10-29 by the redesign item under High value: s2t now has light and dark.
 
 ## Done
 

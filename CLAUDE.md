@@ -4,7 +4,7 @@ Guidance for Claude Code when working in this project.
 
 ## What this is
 
-A static, browser-only **text-to-speech** web app. Paste text or drop a `.txt` / `.md` / `.docx` file, pick a provider (OpenAI / ElevenLabs / Google Gemini), model, and voice, and get spoken audio with an in-app player (skip back/forward 15 and 30 seconds, speed 0.75x to 2x) plus a download. Handles English and Hebrew. Deployed to **t2s.joeleilat.com** on Cloudflare Pages. Sibling of the speech-to-text tool at `../call-transcription` (s2t.joeleilat.com); the UI deliberately mirrors it.
+A static, browser-only **text-to-speech** web app. Paste text or drop a `.txt` / `.md` / `.docx` file, pick a provider (OpenAI / ElevenLabs / Google Gemini), model, and voice, and get spoken audio with an in-app player (skip back/forward 15 and 30 seconds, speed 0.75x to 2x) plus a download. Handles English and Hebrew. Deployed to **t2s.joeleilat.com** on Cloudflare Pages. Sibling of the speech-to-text tool at `../call-transcription` (s2t.joeleilat.com); the UI deliberately mirrors it. **s2t was redesigned on 2026-10-29 (light/dark, new components, a key-field autofill fix) and t2s has not caught up yet.** Joel wants t2s to get the same look: the step-by-step guide is `../call-transcription/DESIGN.md`, tracked as the first High value item in `backlog.md`.
 
 ## Shell environment
 
