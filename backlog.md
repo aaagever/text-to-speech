@@ -31,7 +31,7 @@ Prioritized enhancements beyond V1. None are required for the tool to work.
 
 ### 2026-11-05
 
-- **A part that keeps failing mid-download.** Field report: part 6 of 9 dropped mid-download 5 times in a row and killed the run. The debug report now shows each attempt (how it ended, bytes received, whether the page was hidden or offline) and how long the page was hidden during the run. Failures while the page is hidden no longer spend the retry budget, and the retry waits for the page to come back. A part whose download drops twice with the page in front is split in half. 5 new tests (102 total). See decisions 2026-11-05.
+- **A part that keeps failing mid-download.** Field report: part 6 of 9 dropped mid-download 5 times in a row and killed the run. The debug report now shows each attempt (how it ended, bytes received, whether the page was hidden or offline) and how long the page was hidden during the run. Failures while the page is hidden no longer spend the retry budget, and the retry waits for the page to come back. A part whose download drops twice with the page in front is split in half. 5 new tests (102 total). Deployed 2026-11-05 (Pages deployment `0b000a41`; rollback target `49c388ea`); not yet proven with a real long run on a phone. See decisions 2026-11-05.
 
 ### 2026-08-15
 
