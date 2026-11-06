@@ -78,7 +78,7 @@ Then promote a previous deployment from the Cloudflare dashboard (Pages -> t2s -
 
 ## Reading a bug report / debug details
 
-When something fails, the error banner offers **Copy details**. That produces a plain-text report (no API keys) with: app version, user agent, run id, provider/model/voice, input size, per-chunk timings and byte counts, assembly path, and the provider's HTTP status + error code + a truncated body snippet. To pull it from the console instead: `window.__t2sDebug.report()` (latest run) or inspect `window.__t2sDebug.records`.
+When something fails, the error banner offers **Copy details**. That produces a plain-text report (no API keys) with: app version, user agent, run id, provider/model/voice, input size, per-chunk timings and byte counts, assembly path, and the provider's HTTP status + error code + a truncated body snippet. Since 2026-11-05 it also shows how often and how long the page was hidden during the run, and, for any chunk that needed more than one attempt, one `try N:` line per attempt: duration, how it ended (`connect` = no response, `download` = dropped mid-body, `http <code>`, `too-long`), bytes received before a drop, and `page hidden` / `offline` / `waited Ns for page`. Reading it: drops marked `page hidden` mean the phone backgrounded the tab; repeated `download` drops with the page in front (the part then shows `split`) point at the part's content or OpenAI's stream, not the network. To pull it from the console instead: `window.__t2sDebug.report()` (latest run) or inspect `window.__t2sDebug.records`.
 
 Console logs are namespaced `[t2s:app|synth|openai|elevenlabs|gemini|audio|file]`. Keys are never logged.
 
