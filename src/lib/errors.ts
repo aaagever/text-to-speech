@@ -25,6 +25,13 @@ export interface TtsErrorDetail {
   bodySnippet?: string;
   tooLong?: boolean;
   retryable?: boolean;
+  // Where a network failure happened: before any response ("connect") or after
+  // the provider answered and began sending audio ("download"). A download drop
+  // that repeats on the same part, with the page in front, points at the part's
+  // content rather than the network, so synthesize.ts splits it.
+  phase?: "connect" | "download";
+  // Bytes of the body received before a download drop, when known.
+  bytesReceived?: number;
 }
 
 // A friendly Error whose message is safe to show the user, with structured
@@ -35,6 +42,8 @@ export class TtsError extends Error {
   readonly bodySnippet?: string;
   readonly tooLong: boolean;
   readonly retryable: boolean;
+  readonly phase?: "connect" | "download";
+  readonly bytesReceived?: number;
 
   constructor(message: string, detail: TtsErrorDetail = {}) {
     super(message);
@@ -44,6 +53,8 @@ export class TtsError extends Error {
     this.bodySnippet = detail.bodySnippet;
     this.tooLong = detail.tooLong ?? false;
     this.retryable = detail.retryable ?? false;
+    this.phase = detail.phase;
+    this.bytesReceived = detail.bytesReceived;
   }
 }
 
@@ -168,7 +179,7 @@ async function ttsRequest<T>(
   init: RequestInit,
   ctx: TtsErrorContext,
   signal: AbortSignal,
-  read: (res: Response) => Promise<T>
+  read: (res: Response, progress: { bytes?: number }) => Promise<T>
 ): Promise<T> {
   const log = createLogger(ctx.provider);
   const label = PROVIDER_LABEL[ctx.provider];
@@ -181,7 +192,7 @@ async function ttsRequest<T>(
     log.error(`network error during ${ctx.step}:`, err);
     throw new TtsError(
       `Couldn't reach ${label}. Check your internet connection and try again.`,
-      { retryable: true }
+      { retryable: true, phase: "connect" }
     );
   }
 
@@ -194,17 +205,21 @@ async function ttsRequest<T>(
     throw new TtsError(message, detail);
   }
 
+  const progress: { bytes?: number } = {};
   try {
-    return await read(res);
+    return await read(res, progress);
   } catch (err) {
     // The connection dropped while downloading the response body. Before this
     // was translated it escaped as an unfriendly, non-retryable "Failed to
     // fetch"; treat it as a retryable network failure instead.
     if (err instanceof DOMException && err.name === "AbortError") throw err;
-    log.error(`reading the ${ctx.step} response failed:`, err);
+    log.error(
+      `reading the ${ctx.step} response failed after ${progress.bytes ?? "?"} bytes:`,
+      err
+    );
     throw new TtsError(
       `Lost the connection to ${label} while downloading the audio. Check your internet connection and try again.`,
-      { retryable: true }
+      { retryable: true, phase: "download", bytesReceived: progress.bytes }
     );
   }
 }
@@ -217,7 +232,35 @@ export function ttsFetchArrayBuffer(
   ctx: TtsErrorContext,
   signal: AbortSignal
 ): Promise<ArrayBuffer> {
-  return ttsRequest(url, init, ctx, signal, (res) => res.arrayBuffer());
+  return ttsRequest(url, init, ctx, signal, readCountingBytes);
+}
+
+// Read a body to an ArrayBuffer, counting bytes as they arrive so a dropped
+// download can report how far it got. Falls back to arrayBuffer() where the
+// body is not a readable stream.
+async function readCountingBytes(
+  res: Response,
+  progress: { bytes?: number }
+): Promise<ArrayBuffer> {
+  if (!res.body || typeof res.body.getReader !== "function") return res.arrayBuffer();
+  const reader = res.body.getReader();
+  const parts: Uint8Array[] = [];
+  let total = 0;
+  progress.bytes = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    parts.push(value);
+    total += value.byteLength;
+    progress.bytes = total;
+  }
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const p of parts) {
+    out.set(p, offset);
+    offset += p.byteLength;
+  }
+  return out.buffer;
 }
 
 // Fetch a response and parse it as JSON, with the same handling.

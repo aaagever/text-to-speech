@@ -29,6 +29,10 @@ Prioritized enhancements beyond V1. None are required for the tool to work.
 
 ## Done
 
+### 2026-11-05
+
+- **A part that keeps failing mid-download.** Field report: part 6 of 9 dropped mid-download 5 times in a row and killed the run. The debug report now shows each attempt (how it ended, bytes received, whether the page was hidden or offline) and how long the page was hidden during the run. Failures while the page is hidden no longer spend the retry budget, and the retry waits for the page to come back. A part whose download drops twice with the page in front is split in half. 5 new tests (102 total). See decisions 2026-11-05.
+
 ### 2026-08-15
 
 - **Surviving a bad mobile connection mid-run.** A failed part no longer throws away the parts that already succeeded: the run hands back its completed audio and the UI offers to resume from the failed part, re-requesting only what is missing. Retry budget raised from 2 to 4 (backoff 2s/4s/8s/15s, about 29 seconds of patience). A screen wake lock is held while generating so a sleeping phone does not throttle the connection. Multi-part runs now download opus instead of 128kbps MP3, roughly a sixth the bytes, with a decode probe and MP3 fallback so a browser that cannot handle opus costs one cheap re-request rather than the run. Prompted by a 5-part Hebrew article that lost 73 seconds of billed audio. 5 new tests (97 total). See decisions.md.

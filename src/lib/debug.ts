@@ -8,6 +8,22 @@
 import type { ProviderId } from "./types";
 import { APP_VERSION } from "./log";
 
+// One request for a chunk. Kept for every attempt so a failing part shows how
+// each try ended, how far its download got, and whether the page was hidden or
+// offline at the time (a backgrounded tab on Android loses its downloads).
+export interface AttemptInfo {
+  ms: number;
+  // "ok", "connect" (no response), "download" (dropped mid-body), "http <code>",
+  // "too-long", or "other".
+  result: string;
+  bytes?: number;
+  // The page was hidden at some point during this attempt.
+  hidden?: boolean;
+  offline?: boolean;
+  // Time spent waiting for the page to come back before the next attempt.
+  waitedMs?: number;
+}
+
 export interface ChunkTiming {
   index: number;
   chars: number;
@@ -16,7 +32,9 @@ export interface ChunkTiming {
   // Total attempts made for this chunk (1 = succeeded first try). Surfaced in
   // the report so retried/flaky chunks are visible when diagnosing a run.
   attempts?: number;
-  status: "ok" | "retried" | "failed";
+  // "split": this unit was halved and its halves follow as their own entries.
+  status: "ok" | "retried" | "failed" | "split";
+  tries?: AttemptInfo[];
 }
 
 export type Outcome = "running" | "success" | "error" | "cancelled";
@@ -35,6 +53,9 @@ export interface DebugRecord {
   outcome: Outcome;
   error?: { message: string; status?: number; providerCode?: string; bodySnippet?: string };
   durationSec?: number | null;
+  // How often and for how long the page was hidden during the run.
+  hiddenCount?: number;
+  hiddenMs?: number;
 }
 
 // One attempt to fetch an article by URL. Recorded for success and failure
@@ -162,6 +183,11 @@ export function formatDebugReport(rec?: DebugRecord): string {
     `started: ${r.startedAt}`,
     `finished: ${r.finishedAt ?? "-"}`,
   ];
+  if (r.hiddenCount !== undefined) {
+    lines.push(
+      `page hidden during run: ${r.hiddenCount} time(s), ${Math.round((r.hiddenMs ?? 0) / 1000)}s total`
+    );
+  }
 
   if (r.chunks.length) {
     lines.push("chunks:");
@@ -170,6 +196,17 @@ export function formatDebugReport(rec?: DebugRecord): string {
       lines.push(
         `  #${c.index}: ${c.chars} chars, ${c.ms}ms, ${c.bytes} bytes, ${c.status}${tries}`
       );
+      // Per-attempt detail only where something went wrong, to keep it short.
+      if (c.tries && (c.tries.length > 1 || c.status !== "ok")) {
+        c.tries.forEach((t, n) => {
+          const bits = [`${t.ms}ms`, t.result];
+          if (t.bytes !== undefined) bits.push(`${t.bytes} bytes in`);
+          if (t.hidden) bits.push("page hidden");
+          if (t.offline) bits.push("offline");
+          if (t.waitedMs) bits.push(`waited ${Math.round(t.waitedMs / 1000)}s for page`);
+          lines.push(`      try ${n + 1}: ${bits.join(", ")}`);
+        });
+      }
     }
   }
 

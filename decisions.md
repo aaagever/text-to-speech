@@ -2,6 +2,16 @@
 
 Dated architecture decisions and their rationale. Newest first.
 
+## 2026-11-05: Tell a backgrounded page from a bad part, and split a part whose download keeps dropping
+
+A field failure on Android Chrome: a 9-part Hebrew article (13,095 chars, OpenAI gpt-4o-mini-tts). Parts 1 to 5 took 20 to 27 seconds each. Part 6 failed 5 times in about 76 seconds, so each attempt died after about 9 seconds, every time after OpenAI had answered and started sending audio. Two causes fit equally: the phone backgrounded the tab (the run started at 01:47 local time, and Android Chrome cuts background downloads; the wake lock only holds while the page is in front), or something in that part's text made OpenAI abort its stream (it can only drop the connection once it has sent a 200). The report could not tell them apart. Three changes:
+
+**Per-attempt detail in the report.** Each chunk now keeps a `tries` list: duration, how it ended (`connect` = no response, `download` = dropped mid-body, `http <code>`, `too-long`), bytes received before a drop (the body is now read through a counting stream reader), and whether the page was hidden or the device offline during that attempt. The run also records how often and how long the page was hidden. `src/lib/page-state.ts` tracks visibility. The report prints try lines only for chunks that needed more than one attempt.
+
+**Hidden-page failures don't spend the retry budget, and the retry waits for the page.** A failure while the page was hidden or offline counts against a separate budget (`MAX_BACKGROUND_RETRIES` = 10) instead of the 4 transient retries, and before retrying, `waitUntilUsable` waits for the page to be visible and online. Before this, a phone left in a pocket burned all 5 attempts in under a minute and lost the run.
+
+**Two visible mid-download drops split the part.** If a part's download drops twice with the page in front and online, the network is not the likely cause, so the part is halved and each half synthesized, the same path as a too-long part (depth bounded at 2). A part the provider can't finish streaming gets rescued, and each download gets shorter on a weak connection. The split parent shows as `split` in the report, followed by its halves.
+
 ## 2026-08-15: A failed part no longer discards the whole run (resume, longer retries, wake lock, compact transport)
 
 A field failure on Android: a 5-part Hebrew article where parts 1 to 3 succeeded (73 seconds of generation, 7.4 MB downloaded, already billed) and part 4 failed its retries, throwing all of it away. Four changes, in order of how much they matter.

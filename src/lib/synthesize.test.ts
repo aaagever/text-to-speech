@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { synthesizeText, type ResumeState } from "./synthesize";
 import { TtsError } from "./errors";
+import { formatDebugReport } from "./debug";
 import type { ChunkAudio, SynthesisRequest, TTSProvider } from "./types";
 
 // Three paragraphs that each fit the 1800-char limit but cannot be combined,
@@ -234,5 +235,76 @@ describe("resuming a failed run", () => {
     );
 
     expect(synth).toHaveBeenCalledTimes(3); // started over
+  });
+});
+
+describe("mid-download drops and a hidden page", () => {
+  const LONG_UNIT =
+    "This is the first sentence of a longer part. This is the second sentence, which closes it.";
+
+  it("splits a part whose download drops twice with the page in front", async () => {
+    vi.useFakeTimers();
+    const drop = () =>
+      new TtsError("Lost the connection", { retryable: true, phase: "download", bytesReceived: 4096 });
+    const synth = vi
+      .fn()
+      .mockRejectedValueOnce(drop())
+      .mockRejectedValueOnce(drop())
+      .mockResolvedValue(mp3Chunk());
+
+    vi.stubGlobal("AudioContext", FakeAudioContext); // two halves merge to WAV
+    const p = synthesizeText(params(providerWith(synth), LONG_UNIT), opts());
+    await vi.advanceTimersByTimeAsync(2000);
+    const out = await p;
+    vi.unstubAllGlobals();
+    expect(out.extension).toBe("wav");
+
+    // Two drops on the whole part, then one request per half.
+    expect(synth).toHaveBeenCalledTimes(4);
+    const halves = synth.mock.calls.slice(2).map((c) => (c[0] as SynthesisRequest).text);
+    expect(halves.join(" ")).toBe(LONG_UNIT);
+    const chunks = latestChunks();
+    expect(chunks[0].status).toBe("split");
+    expect(chunks[0].attempts).toBe(2);
+
+    const report = formatDebugReport();
+    expect(report).toMatch(/try 1: \d+ms, download, 4096 bytes in/);
+  });
+
+  it("does not spend the retry budget while the page is hidden, and waits for it", async () => {
+    vi.useFakeTimers();
+    let state: DocumentVisibilityState = "visible";
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => state });
+    const setState = (s: DocumentVisibilityState) => {
+      state = s;
+      document.dispatchEvent(new Event("visibilitychange"));
+    };
+
+    let calls = 0;
+    const synth = vi.fn(async () => {
+      calls++;
+      if (calls <= 6) {
+        // The phone backgrounds the tab mid-request and comes back 20s later.
+        setState("hidden");
+        setTimeout(() => setState("visible"), 20_000);
+        throw new TtsError("Lost the connection", { retryable: true, phase: "download" });
+      }
+      return mp3Chunk();
+    });
+
+    const p = synthesizeText(params(providerWith(synth)), opts());
+    // While hidden, nothing is retried.
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(synth).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(6 * (20_000 + 2000));
+    const out = await p;
+
+    // Six background failures would have exhausted the old budget of five.
+    expect(synth).toHaveBeenCalledTimes(7);
+    expect(out.extension).toBe("mp3");
+    const report = formatDebugReport();
+    expect(report).toMatch(/page hidden during run: 6 time\(s\)/);
+    expect(report).toMatch(/try 1: .*page hidden, waited \d+s for page/);
+    Reflect.deleteProperty(document, "visibilityState");
   });
 });

@@ -46,6 +46,39 @@ describe("network and body-read handling", () => {
     expect((err as TtsError).message).toMatch(/lost the connection/i);
   });
 
+  it("reports how many bytes arrived before a streamed download dropped", async () => {
+    let sent = false;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (!sent) {
+          sent = true;
+          controller.enqueue(new Uint8Array(1500));
+        } else {
+          controller.error(new TypeError("network error"));
+        }
+      },
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(body, { status: 200 })));
+    const err = (await ttsFetchArrayBuffer("u", {}, CTX, signal()).catch((e) => e)) as TtsError;
+    expect(err).toBeInstanceOf(TtsError);
+    expect(err.phase).toBe("download");
+    expect(err.bytesReceived).toBe(1500);
+    expect(err.retryable).toBe(true);
+  });
+
+  it("reads a complete streamed body intact", async () => {
+    const bytes = new Uint8Array([1, 2, 3, 4, 5]);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(bytes, { status: 200 })));
+    const buf = await ttsFetchArrayBuffer("u", {}, CTX, signal());
+    expect(Array.from(new Uint8Array(buf))).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  it("marks a failed connection as the connect phase", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+    const err = (await ttsFetchArrayBuffer("u", {}, CTX, signal()).catch((e) => e)) as TtsError;
+    expect(err.phase).toBe("connect");
+  });
+
   it("rethrows a user abort untouched, not as a TtsError", async () => {
     vi.stubGlobal(
       "fetch",

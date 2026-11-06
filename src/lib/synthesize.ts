@@ -15,8 +15,11 @@ import { createLogger } from "./log";
 import {
   finishDebugRecord,
   startDebugRecord,
+  type AttemptInfo,
+  type ChunkTiming,
   type DebugRecord,
 } from "./debug";
+import { hiddenStats, isOffline, waitUntilUsable, wasHiddenSince } from "./page-state";
 
 export const WARN_INPUT_CHARS = 60_000;
 export const MAX_INPUT_CHARS = 200_000;
@@ -129,15 +132,37 @@ function makeFilenameBase(): string {
 // better part of a minute. Two retries proved too few in the field.
 const MAX_TRANSIENT_RETRIES = 4;
 
+// A failure while the page was hidden or the device offline is the phone's
+// doing, not the request's, so it does not spend the budget above. The app
+// waits for the page to come back before retrying. Bounded so a pathological
+// case still ends.
+const MAX_BACKGROUND_RETRIES = 10;
+
+// A part whose download drops this many times with the page in front is split
+// in half, like a too-long part. It rescues a passage the provider cannot
+// finish streaming, and it makes each download shorter on a weak connection.
+const DOWNLOAD_DROPS_BEFORE_SPLIT = 2;
+
 // Wait before attempt N+1, doubling but capped so the last wait stays sane.
 function backoffMs(attempt: number): number {
   return Math.min(2000 * 2 ** (attempt - 1), 15_000);
 }
 
+function describeFailure(err: unknown): string {
+  if (err instanceof TtsError) {
+    if (err.tooLong) return "too-long";
+    if (err.phase) return err.phase;
+    if (err.status !== undefined) return `http ${err.status}`;
+  }
+  return "other";
+}
+
 // Synthesize one unit of text, returning one or more audio chunks. A too-long
-// unit is split near its middle and each half synthesized (recursion bounded by
+// unit, or one whose download keeps dropping with the page in front, is split
+// near its middle and each half synthesized (recursion bounded by
 // `splitDepth`); a transient failure is retried with a short backoff (bounded by
-// MAX_TRANSIENT_RETRIES), independent of split depth. `onRetry` fires when a
+// MAX_TRANSIENT_RETRIES, with failures while the page was hidden or offline
+// counted separately), independent of split depth. `onRetry` fires when a
 // retry is about to be waited out, so the caller can reflect it in the UI.
 async function synthesizeUnit(
   provider: TTSProvider,
@@ -153,57 +178,113 @@ async function synthesizeUnit(
   if (signal.aborted) throw abortError();
 
   const startedAt = Date.now();
-  let attempt = 0; // retries of THIS request, not split children
+  const tries: AttemptInfo[] = [];
+  let attempt = 0; // counted retries of THIS request, not split children
+  let backgroundRetries = 0;
+  let visibleDownloadDrops = 0;
+
+  const record = (status: ChunkTiming["status"], bytes: number) =>
+    rec.chunks.push({
+      index: rec.chunks.length,
+      chars: unit.length,
+      ms: Date.now() - startedAt,
+      bytes,
+      attempts: tries.length,
+      status,
+      tries,
+    });
+
+  const split = async (): Promise<ChunkAudio[]> => {
+    record("split", 0);
+    const [a, b] = splitInHalf(unit);
+    const left = await synthesizeUnit(provider, base, a, previousText, b, signal, rec, splitDepth + 1, onRetry);
+    const right = await synthesizeUnit(provider, base, b, a, nextText, signal, rec, splitDepth + 1, onRetry);
+    return [...left, ...right];
+  };
 
   for (;;) {
+    const tryStart = Date.now();
     try {
       const audio = await provider.synthesize(
         { ...base, text: unit, previousText, nextText },
         signal
       );
-      rec.chunks.push({
-        index: rec.chunks.length,
-        chars: unit.length,
-        ms: Date.now() - startedAt,
+      tries.push({
+        ms: Date.now() - tryStart,
+        result: "ok",
         bytes: audio.data.byteLength,
-        attempts: attempt + 1,
-        status: attempt > 0 || splitDepth > 0 ? "retried" : "ok",
+        hidden: wasHiddenSince(tryStart) || undefined,
       });
+      record(tries.length > 1 || splitDepth > 0 ? "retried" : "ok", audio.data.byteLength);
       return [audio];
     } catch (err) {
       if (isAbortError(err)) throw err;
 
+      const hidden = wasHiddenSince(tryStart);
+      const offline = isOffline();
+      const info: AttemptInfo = {
+        ms: Date.now() - tryStart,
+        result: describeFailure(err),
+        bytes: err instanceof TtsError ? err.bytesReceived : undefined,
+        hidden: hidden || undefined,
+        offline: offline || undefined,
+      };
+      tries.push(info);
+      const canSplit = splitDepth < 2 && unit.length > 60;
+
       // Too long for the model: split near the middle and synthesize each half.
-      if (err instanceof TtsError && err.tooLong && splitDepth < 2 && unit.length > 60) {
+      if (err instanceof TtsError && err.tooLong && canSplit) {
         log.warn(`part too long (${unit.length} chars); splitting and retrying`);
-        const [a, b] = splitInHalf(unit);
-        const left = await synthesizeUnit(provider, base, a, previousText, b, signal, rec, splitDepth + 1, onRetry);
-        const right = await synthesizeUnit(provider, base, b, a, nextText, signal, rec, splitDepth + 1, onRetry);
-        return [...left, ...right];
+        return split();
+      }
+
+      // The download keeps dropping while the page is in front: the network is
+      // not the likely cause, so try the part in two shorter halves.
+      if (err instanceof TtsError && err.retryable && err.phase === "download" && !hidden && !offline) {
+        visibleDownloadDrops++;
+        if (visibleDownloadDrops >= DOWNLOAD_DROPS_BEFORE_SPLIT && canSplit) {
+          log.warn(
+            `download dropped ${visibleDownloadDrops} times with the page visible (${unit.length} chars); splitting`
+          );
+          return split();
+        }
       }
 
       // Transient failure (network drop, rate limit, provider 5xx): back off and
       // retry the same request a bounded number of times. This is what saves a
       // long run from a single dropped request on a flaky mobile network.
-      if (err instanceof TtsError && err.retryable && attempt < MAX_TRANSIENT_RETRIES) {
-        attempt++;
-        const wait = backoffMs(attempt);
-        log.warn(
-          `transient failure (attempt ${attempt} of ${MAX_TRANSIENT_RETRIES}); retrying in ${wait}ms: ${err.message}`
-        );
-        onRetry?.(attempt + 1); // the attempt number we are about to make
-        await delay(wait, signal);
-        continue;
+      if (err instanceof TtsError && err.retryable) {
+        let allowed = false;
+        if ((hidden || offline) && backgroundRetries < MAX_BACKGROUND_RETRIES) {
+          backgroundRetries++;
+          allowed = true;
+        } else if (attempt < MAX_TRANSIENT_RETRIES) {
+          attempt++;
+          allowed = true;
+        }
+        if (allowed) {
+          const wait = backoffMs(Math.max(1, attempt));
+          log.warn(
+            `transient failure (${info.result}${hidden ? ", page hidden" : ""}${offline ? ", offline" : ""}; ` +
+              `retry ${attempt} of ${MAX_TRANSIENT_RETRIES}, background ${backgroundRetries}); ` +
+              `retrying in ${wait}ms: ${err.message}`
+          );
+          onRetry?.(tries.length + 1); // the attempt number we are about to make
+          // Don't spend the next attempt in the background: wait for the page
+          // (and the network) to come back first.
+          const waitStart = Date.now();
+          await waitUntilUsable(signal);
+          const waited = Date.now() - waitStart;
+          if (waited > 0) {
+            info.waitedMs = waited;
+            log.info(`page usable again after ${waited}ms; retrying`);
+          }
+          await delay(wait, signal);
+          continue;
+        }
       }
 
-      rec.chunks.push({
-        index: rec.chunks.length,
-        chars: unit.length,
-        ms: Date.now() - startedAt,
-        bytes: 0,
-        attempts: attempt + 1,
-        status: "failed",
-      });
+      record("failed", 0);
       throw err;
     }
   }
@@ -261,6 +342,13 @@ export async function synthesizeText(
     voice,
     inputChars: text.length,
   });
+  const hidden0 = hiddenStats();
+  const finish = (outcome: "success" | "error" | "cancelled", durationSec?: number | null) => {
+    const h = hiddenStats();
+    rec.hiddenCount = h.count - hidden0.count;
+    rec.hiddenMs = h.ms - hidden0.ms;
+    finishDebugRecord(rec, outcome, durationSec);
+  };
 
   try {
     if (!text.trim()) {
@@ -341,6 +429,8 @@ export async function synthesizeText(
             bodySnippet: err.bodySnippet,
             tooLong: err.tooLong,
             retryable: err.retryable,
+            phase: err.phase,
+            bytesReceived: err.bytesReceived,
           });
         }
         throw err;
@@ -349,12 +439,12 @@ export async function synthesizeText(
 
     const output = await assemble(audioChunks, rec);
     const retriedParts = rec.chunks.filter((c) => (c.attempts ?? 1) > 1).length;
-    finishDebugRecord(rec, "success", output.durationSec);
+    finish("success", output.durationSec);
     return { ...output, retriedParts };
   } catch (err) {
     if (isAbortError(err)) {
       log.info(`run ${rec.runId} cancelled`);
-      finishDebugRecord(rec, "cancelled");
+      finish("cancelled");
       throw err;
     }
     if (err instanceof TtsError) {
@@ -367,7 +457,7 @@ export async function synthesizeText(
     } else {
       rec.error = { message: err instanceof Error ? err.message : String(err) };
     }
-    finishDebugRecord(rec, "error");
+    finish("error");
     throw err;
   }
 }
